@@ -41,18 +41,15 @@ class BlockChain {
     return true;
   }
 
-  replaceChain(newChain) {
+  receiveChain(newChain) {
     if (newChain.length <= this.chain.length) {
       console.log("Received chain is not longer than current chain.");
-      return false;
     }
     if (!this.isChainValid(newChain)) {
       console.log("Received chain is invalid.");
-      return false;
     }
     console.log("Replacing current chain with new chain.");
     this.chain = newChain;
-    return true;
   }
 
   addToMempool(transaction) {
@@ -60,13 +57,11 @@ class BlockChain {
   }
 
   mineMempool() {
-    const newBlock = new Block(
-      this.getLatesBlock().index + 1,
-      this.mempool,
-      this.getLatesBlock().hash
-    );
-    newBlock.mineBlock(this.difficulty);
-    this.chain.push(newBlock);
+    if (this.mempool.length === 0) {
+      console.log("Mempool is empty, nothing to mine.");
+      return;
+    }
+    this.addBlock(this.mempool);
     console.log("Block mined successfully!");
     this.mempool = [];
   }
