@@ -1,15 +1,16 @@
-// test-sign.js
-const { createWallet } = require("./Wallet");
-const { Transaction } = require("./Transaction");
+// test mempool addition
 
-const alice = createWallet();
-const bob = createWallet();
+const { BlockChain } = require("./BlockChain");
+const blockchain = new BlockChain(4);
 
-const tx = new Transaction(alice.publicKey, bob.publicKey, 10);
-tx.sign(alice.privateKey);
+// add transactions to mempool
+blockchain.addToMempool({ from: "Alice", to: "Bob", amount: 50 });
+blockchain.addToMempool({ from: "Charlie", to: "Dave", amount: 25 });
+blockchain.addToMempool({ from: "Eve", to: "Frank", amount: 75 });
 
-console.log("Valid tx?", tx.isValid(alice.publicKey)); // true
+console.log("Current Mempool:", blockchain.mempool);
 
-// thử giả mạo
-tx.amount = 1000;
-console.log("Valid after tamper?", tx.isValid(alice.publicKey)); // false
+blockchain.mineMempool();
+
+console.log("Blockchain after mining mempool:");
+console.log(blockchain.chain);

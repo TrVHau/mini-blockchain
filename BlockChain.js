@@ -1,9 +1,10 @@
 const { Block } = require("./Block");
 
-class Blockchain {
+class BlockChain {
   constructor(difficulty = 2) {
     this.chain = [Block.genesis()];
     this.difficulty = difficulty;
+    this.mempool = [];
   }
 
   get() {
@@ -53,5 +54,21 @@ class Blockchain {
     this.chain = newChain;
     return true;
   }
+
+  addToMempool(transaction) {
+    this.mempool.push(transaction);
+  }
+
+  mineMempool() {
+    const newBlock = new Block(
+      this.getLatesBlock().index + 1,
+      this.mempool,
+      this.getLatesBlock().hash
+    );
+    newBlock.mineBlock(this.difficulty);
+    this.chain.push(newBlock);
+    console.log("Block mined successfully!");
+    this.mempool = [];
+  }
 }
-exports.Blockchain = Blockchain;
+exports.BlockChain = BlockChain;
