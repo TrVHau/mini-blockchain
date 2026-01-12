@@ -1,9 +1,10 @@
 // test-sign.js
-const { Wallet } = require("./Wallet");
+const { createWallet } = require("./Wallet");
 const { Transaction } = require("./Transaction");
 
-const alice = Wallet.createWallet();
-const bob = Wallet.createWallet();
+const alice = createWallet();
+const bob = createWallet();
+
 const tx = new Transaction(alice.publicKey, bob.publicKey, 10);
 tx.sign(alice.privateKey);
 

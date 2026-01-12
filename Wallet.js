@@ -1,6 +1,6 @@
 const crypto = require("crypto");
 
-// Hàm tạo ví mới giống metadata cho ví
+// Hàm tạo ví mới
 function createWallet() {
   const { publicKey, privateKey } = crypto.generateKeyPairSync("ec", {
     namedCurve: "secp256k1",
@@ -16,6 +16,6 @@ function createWallet() {
   return { publicKey, privateKey };
 }
 
-module.exports.Wallet = {
+module.exports = {
   createWallet,
 };
