@@ -5,12 +5,13 @@ class Transaction {
     this.from = from;
     this.to = to;
     this.amount = amount;
+    this.timestamp = Date.now();
   }
 
   calculateHash() {
     return crypto
       .createHash("sha256")
-      .update(`${this.from}|${this.to}|${this.amount}`)
+      .update(`${this.from}|${this.to}|${this.amount}|${this.timestamp}`)
       .digest("hex");
   }
 

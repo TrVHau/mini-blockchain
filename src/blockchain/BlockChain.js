@@ -11,12 +11,12 @@ class BlockChain {
     return this.chain;
   }
 
-  getLatesBlock() {
+  getLatestBlock() {
     return this.chain[this.chain.length - 1];
   }
 
   addBlock(data) {
-    const preBlock = this.getLatesBlock();
+    const preBlock = this.getLatestBlock();
     const newBlock = new Block(preBlock.index + 1, data, preBlock.hash);
     newBlock.mineBlock(this.difficulty);
     this.chain.push(newBlock);
@@ -44,9 +44,11 @@ class BlockChain {
   receiveChain(newChain) {
     if (newChain.length <= this.chain.length) {
       console.log("Received chain is not longer than current chain.");
+      return;
     }
     if (!this.isChainValid(newChain)) {
       console.log("Received chain is invalid.");
+      return;
     }
     console.log("Replacing current chain with new chain.");
     this.chain = newChain;
