@@ -20,8 +20,7 @@ class Block {
     return crypto
       .createHash("sha256")
       .update(
-        `${this.index}|${this.previousHash}|${this.timestamp}
-        |${this.nonce}|${txData}|${txData}`
+        `${this.index}|${this.previousHash}|${this.timestamp}|${this.nonce}|${this.data}|${txData}`
       )
       .digest("hex");
   }
@@ -44,6 +43,10 @@ class Block {
       this.nonce++;
       this.hash = this.calculateHash();
     }
+  }
+
+  getTotalFees() {
+    return this.totalFees;
   }
 
   toString() {

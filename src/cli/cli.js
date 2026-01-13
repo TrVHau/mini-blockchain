@@ -34,7 +34,7 @@ function cli() {
     .use(clearCommand)
     .use(walletCreateCommand)
     .use(listWalletsCommand)
-    .use(balanceComand)
+    .use(balanceCommand)
     .use(sendCommand)
     .use(allBalancesCommand)
     .delimiter("BLOCKCHAIN => ")
@@ -436,142 +436,146 @@ function clearCommand(vorpal) {
       this.log("Welcome to Blockchain CLI!");
       callback();
     });
+}
 
-  function walletCreateCommand(vorpal) {
-    vorpal
-      .command(
-        "wallet-create <name>",
-        "Create a new wallet. Eg: wallet-create Alice"
-      )
-      .alias("wc")
-      .action(function (args, callback) {
-        try {
-          const publicKey = walletManager.createWallet(args.name);
-          this.log(
-            `Wallet "${args.name}" \n Created with public key: ${publicKey}`
-          );
-        } catch (err) {
-          this.log(`Error creating wallet: ${err.message}`);
-        }
-        callback();
-      });
-  }
-  function listWalletsCommand(vorpal) {
-    vorpal
-      .command("wallets", "List all wallets.")
-      .alias("wl")
-      .action(function (args, callback) {
-        try {
-          const wallets = walletManager.wallets;
-          if (wallets.size === 0) {
-            this.log("No wallets found.");
-          } else {
-            this.log("\nWallets:\n");
-            wallets.forEach((name, i) => {
-              const address = walletManager.getPublicKey(name);
-              const balance = blockchain.getBalance(address);
-              this.log(`${i + 1}`);
-              this.log(` Name   : ${name}`);
-              this.log(` Address: ${address.substring(0, 20)}...`);
-              this.log(` Balance: ${balance} coins`);
-              this.log("-----------------------");
-            });
-          }
-        } catch (err) {
-          this.log(`Error listing wallets: ${err.message}`);
-        }
-        callback();
-      });
-  }
-
-  // check balance command
-  function balanceComand(vorpal) {
-    vorpal
-      .command("balance <name>", "Check balance of a wallet. Eg: balance Alice")
-      .alias("bal")
-      .action(function (args, callback) {
-        try {
-          const address = walletManager.getPublicKey(args.name);
-          const balance = blockchain.getBalance(address);
-          this.log(`Wallet "${args.name}`);
-          this.log(` Address: ${address}`);
-          this.log(` Balance: ${balance} coins`);
-        } catch (err) {
-          this.log(`Error checking balance: ${err.message}`);
-        }
-        callback();
-      });
-  }
-
-  // send transaction command
-  function sendCommand(vorpal) {
-    vorpal
-      .command(
-        "send <from> <to> <amount> [fee]",
-        "Send coins from one wallet to another. Eg: send Alice Bob 10"
-      )
-      .action(function (args, callback) {
-        try {
-          // Lấy địa chỉ ví người gửi
-          const fromAddress = walletManager.getPublicKey(args.from);
-          const privateKey = walletManager.getPrivateKey(args.from);
-
-          // layas địa chỉ ví người nhận
-          let toAdress;
-          try {
-            toAdress = walletManager.getPublicKey(args.to);
-          } catch {
-            toAdress = args.to; // nếu không phải ví trong hệ thống thì dùng địa chỉ thẳng
-          }
-
-          // tạo transaction
-          const amount = parseFloat(args.amount);
-          const fee = args.fee ? parseFloat(args.fee) : 0;
-          const transaction = new Transaction(
-            fromAddress,
-            toAdress,
-            amount,
-            fee
-          );
-
-          // ký transaction
-          transaction.signTransaction(privateKey);
-
-          // thêm vào mempool
-          blockchain.addToMempool(transaction);
-
-          // broadcast transaction đến các peer
-          p2p.broadcastTransaction(transaction);
-          this.log(`Transaction created and broadcasted successfully!`);
-          this.log(`From: ${args.from}`);
-          this.log(`To  : ${args.to}`);
-          this.log(`Amount: ${amount} coins`);
-          this.log(`Fee   : ${fee} coins`);
-          this.log(`Wait for it to be mined into a block.`);
-        } catch (err) {
-          this.log(`Error sending transaction: ${err.message}`);
-        }
-        callback();
-      });
-  }
-
-  function allBalancesCommand(vorpal) {
-    vorpal
-      .command("all-balances", "View all wallet balances.")
-      .alias("ab")
-      .action(function (args, callback) {
-        try {
-          const balances = blockchain.getAllBalances();
-          this.log("\nAll Wallet Balances:\n");
-          for (const [address, balance] of Object.entries(balances)) {
-            this.log(` Address: ${address.substring(0, 20)}...`);
+function walletCreateCommand(vorpal) {
+  vorpal
+    .command(
+      "wallet-create <name>",
+      "Create a new wallet. Eg: wallet-create Alice"
+    )
+    .alias("wc")
+    .action(function (args, callback) {
+      try {
+        const publicKey = walletManager.createWallet(args.name);
+        this.log(
+          `Wallet "${args.name}" \n Created with public key: ${publicKey}`
+        );
+      } catch (err) {
+        this.log(`Error creating wallet: ${err.message}`);
+      }
+      callback();
+    });
+}
+function listWalletsCommand(vorpal) {
+  vorpal
+    .command("wallets", "List all wallets.")
+    .alias("wl")
+    .action(function (args, callback) {
+      try {
+        const wallets = walletManager.listWallets();
+        if (wallets.length === 0) {
+          this.log("No wallets found.");
+        } else {
+          this.log("\nWallets:\n");
+          wallets.forEach((name, i) => {
+            const address = walletManager.getPublicKey(name);
+            const balance = blockchain.getBalance(address);
+            this.log(`${i + 1}. ${name}`);
+            this.log(` Address: ${address.substring(0, 50)}...`);
             this.log(` Balance: ${balance} coins`);
             this.log("-----------------------");
-          }
-        } catch (err) {
-          this.log(`Error getting all balances: ${err.message}`);
+          });
         }
-        callback();
-      });
-  }
+      } catch (err) {
+        this.log(`Error listing wallets: ${err.message}`);
+      }
+      callback();
+    });
+}
+
+// check balance command
+function balanceCommand(vorpal) {
+  vorpal
+    .command("balance <name>", "Check balance of a wallet. Eg: balance Alice")
+    .alias("bal")
+    .action(function (args, callback) {
+      try {
+        const address = walletManager.getPublicKey(args.name);
+        const balance = blockchain.getBalance(address);
+        this.log(`\nWallet: ${args.name}`);
+        this.log(` Address: ${address.substring(0, 50)}...`);
+        this.log(` Balance: ${balance} coins\n`);
+      } catch (err) {
+        this.log(`Error checking balance: ${err.message}`);
+      }
+      callback();
+    });
+}
+
+// send transaction command
+function sendCommand(vorpal) {
+  vorpal
+    .command(
+      "send <from> <to> <amount> [fee]",
+      "Send coins from one wallet to another. Eg: send Alice Bob 10"
+    )
+    .action(function (args, callback) {
+      try {
+        // Lấy địa chỉ ví người gửi
+        const fromAddress = walletManager.getPublicKey(args.from);
+        const privateKey = walletManager.getPrivateKey(args.from);
+
+        // Lấy địa chỉ ví người nhận
+        let toAddress;
+        try {
+          toAddress = walletManager.getPublicKey(args.to);
+        } catch {
+          toAddress = args.to; // nếu không phải ví trong hệ thống thì dùng địa chỉ thẳng
+        }
+
+        // tạo transaction
+        const amount = parseFloat(args.amount);
+        const fee = args.fee ? parseFloat(args.fee) : 0;
+        const transaction = new Transaction(
+          fromAddress,
+          toAddress,
+          amount,
+          fee
+        );
+
+        // ký transaction
+        transaction.sign(privateKey);
+
+        // thêm vào mempool
+        blockchain.addTransaction(transaction, fromAddress);
+
+        // broadcast transaction đến các peer
+        p2p.broadcastTransaction(transaction);
+        this.log(`\nTransaction created and broadcasted successfully!`);
+        this.log(`From: ${args.from}`);
+        this.log(`To  : ${args.to}`);
+        this.log(`Amount: ${amount} coins`);
+        this.log(`Fee   : ${fee} coins`);
+        this.log(`Wait for it to be mined into a block.\n`);
+      } catch (err) {
+        this.log(`Error sending transaction: ${err.message}`);
+      }
+      callback();
+    });
+}
+
+function allBalancesCommand(vorpal) {
+  vorpal
+    .command("all-balances", "View all wallet balances.")
+    .alias("ab")
+    .action(function (args, callback) {
+      try {
+        const balances = blockchain.getAllBalances();
+        const entries = Object.entries(balances);
+        if (entries.length === 0) {
+          this.log("No addresses with balance.");
+        } else {
+          this.log("\nAll Wallet Balances:\n");
+          entries.forEach(([address, balance]) => {
+            this.log(` Address: ${address.substring(0, 50)}...`);
+            this.log(` Balance: ${balance} coins`);
+            this.log("-----------------------");
+          });
+        }
+      } catch (err) {
+        this.log(`Error getting all balances: ${err.message}`);
+      }
+      callback();
+    });
 }

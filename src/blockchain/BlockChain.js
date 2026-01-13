@@ -132,6 +132,14 @@ class BlockChain {
     return true;
   }
 
+  addBlock(data) {
+    const preBlock = this.getLatestBlock();
+    const newBlock = new Block(preBlock.index + 1, data, preBlock.hash);
+    newBlock.mineBlock(this.difficulty, "SYSTEM");
+    this.chain.push(newBlock);
+    this.balanceTracker.updateBalance(this.chain);
+  }
+
   addToMempool(transaction) {
     this.mempool.push(transaction);
   }
@@ -197,6 +205,19 @@ class BlockChain {
       `Block #${newBlock.index} mined successfully by ${minerAddress}`
     );
     return newBlock;
+  }
+
+  getBalance(address) {
+    return this.balanceTracker.getBalance(address);
+  }
+
+  getAllBalances() {
+    return this.balanceTracker.getAllBalances();
+  }
+
+  getMiningReward() {
+    const latestBlock = this.getLatestBlock();
+    return latestBlock.coinbaseTx ? latestBlock.coinbaseTx.amount : 0;
   }
 
   getBalance(address) {

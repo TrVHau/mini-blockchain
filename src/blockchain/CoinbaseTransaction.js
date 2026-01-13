@@ -23,3 +23,5 @@ class CoinbaseTransaction {
     return true;
   }
 }
+
+module.exports = { CoinbaseTransaction };

@@ -1,4 +1,4 @@
-const { createWallet } = require("../Wallet.js");
+const { createWallet } = require("./Wallet.js");
 const fs = require("fs");
 const path = require("path");
 
