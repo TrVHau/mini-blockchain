@@ -29,6 +29,7 @@ class Block {
   static genesis() {
     return new Block(0, "Genesis Block", "0");
   }
+
   mineBlock(difficulty, minerAddress) {
     this.totalFees = this.transactions.reduce(
       (sum, tx) => sum + (tx.fee || 0),
@@ -44,6 +45,7 @@ class Block {
       this.hash = this.calculateHash();
     }
   }
+
   toString() {
     return `Block -
       Index       : ${this.index}

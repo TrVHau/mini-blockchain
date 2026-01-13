@@ -36,8 +36,15 @@ class P2P {
   handleMessage(socket, data) {
     const handlers = {
       [MESSAGE_TYPE.NEW_BLOCK]: () => this.handleNewBlock(data.data.block),
-      [MESSAGE_TYPE.TRANSACTION]: () =>
-        this.blockchain.addToMempool(data.data.transaction),
+      [MESSAGE_TYPE.TRANSACTION]: () => {
+        // theem vaof mempool neu valid
+        try {
+          this.blockchain.addTransaction(data.data.transaction);
+          console.log("Transaction added to mempool from peer");
+        } catch (err) {
+          console.error("Invalid transaction received from peer:", err.message);
+        }
+      },
       [MESSAGE_TYPE.REQUEST_CHAIN]: () => this.handleChainRequest(socket),
       [MESSAGE_TYPE.RECEIVE_CHAIN]: () =>
         this.handleReceiveChain(data.data.chain),
@@ -262,6 +269,27 @@ class P2P {
       this.server.close();
     }
     this.peers.forEach((peer) => peer.close());
+  }
+
+  broadcastTransaction(transaction) {
+    try {
+      if (this.peers.length === 0) {
+        console.log("No peers connected to broadcast to.");
+        return;
+      }
+
+      const message = Messages.transaction(transaction);
+      let sent = 0;
+      this.peers.forEach((peer) => {
+        if (peer.readyState === WebSocket.OPEN) {
+          peer.send(message);
+          sent++;
+        }
+      });
+      console.log(`Transaction broadcast to ${sent} peer(s)`);
+    } catch (err) {
+      console.error("Error broadcasting transaction:", err.message);
+    }
   }
 }
 

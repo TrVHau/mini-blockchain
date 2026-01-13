@@ -1,10 +1,12 @@
 const { Block } = require("./Block");
+const { BalanceTracker } = require("../wallet/BalanceTracker.js");
 
 class BlockChain {
   constructor(difficulty = 4) {
     this.chain = [Block.genesis()];
     this.difficulty = difficulty;
     this.mempool = [];
+    this.balanceTracker = new BalanceTracker();
   }
 
   get() {
@@ -13,13 +15,6 @@ class BlockChain {
 
   getLatestBlock() {
     return this.chain[this.chain.length - 1];
-  }
-
-  addBlock(data) {
-    const preBlock = this.getLatestBlock();
-    const newBlock = new Block(preBlock.index + 1, data, preBlock.hash);
-    newBlock.mineBlock(this.difficulty);
-    this.chain.push(newBlock);
   }
 
   receiveBlock(block) {
@@ -66,6 +61,7 @@ class BlockChain {
     console.log(`Block #${block.index} accepted and added to chain`);
     return true;
   }
+
   isChainValid(chain = null) {
     const chainToValidate = chain || this.chain;
 
@@ -148,6 +144,71 @@ class BlockChain {
     this.addBlock(this.mempool);
     console.log("Block mined successfully!");
     this.mempool = [];
+  }
+
+  // thêm validate và transaction vào mempool
+  addTransaction(transaction, sendersPublicKey) {
+    // validate signature
+    if (transaction.type === "TRANSFER") {
+      if (!transaction.isValid(sendersPublicKey)) {
+        throw new Error("Invalid transaction signature");
+      }
+    }
+
+    // validate balance
+    const totalCost = transaction.getTotalCost();
+    if (!this.balanceTracker.hasBalance(transaction.from, totalCost)) {
+      const currentBalance = this.balanceTracker.getBalance(transaction.from);
+      throw new Error(
+        `Insufficient balance. Current: ${currentBalance}, Required: ${totalCost}`
+      );
+    }
+
+    this.mempool.push(transaction);
+    console.log(
+      "Transaction added to mempool. mempool size:",
+      this.mempool.length
+    );
+    return true;
+  }
+
+  mineBlock(minerAddress, data = null) {
+    const preBlock = this.getLatestBlock();
+    const newBlock = new Block(
+      preBlock.index + 1,
+      data,
+      preBlock.hash,
+      minerAddress
+    );
+
+    // add transactions from mempool
+    newBlock.transactions = this.mempool;
+    this.mempool = [];
+
+    //mine block - tạo coinbase transaction bên trong
+    newBlock.mineBlock(this.difficulty, minerAddress);
+
+    this.chain.push(newBlock);
+
+    // update balances
+    this.balanceTracker.updateBalance(this.chain);
+
+    console.log(
+      `Block #${newBlock.index} mined successfully by ${minerAddress}`
+    );
+    return newBlock;
+  }
+
+  getBalance(address) {
+    return this.balanceTracker.getBalance(address);
+  }
+
+  getAllBalances() {
+    return this.balanceTracker.getAllBalances();
+  }
+
+  addBlock(data) {
+    return this.mineBlock("SYSTEM", data);
   }
 }
 exports.BlockChain = BlockChain;
