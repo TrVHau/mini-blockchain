@@ -1,5 +1,6 @@
 const { Block } = require("./Block");
 const { BalanceTracker } = require("../wallet/BalanceTracker.js");
+const { shortenAddress } = require("../util/AddressHelper.js");
 
 class BlockChain {
   constructor(difficulty = 4) {
@@ -220,8 +221,10 @@ class BlockChain {
     // update balances
     this.balanceTracker.updateBalance(this.chain);
 
+    const displayAddress =
+      minerAddress === "SYSTEM" ? "SYSTEM" : shortenAddress(minerAddress);
     console.log(
-      `Block #${newBlock.index} mined successfully by ${minerAddress}`
+      `Block #${newBlock.index} mined successfully by ${displayAddress}`
     );
     return newBlock;
   }

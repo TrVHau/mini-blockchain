@@ -30,6 +30,7 @@ function cli() {
     .use(mempoolCommand)
     // Mining Commands
     .use(mineCommand)
+    .use(mineMempoolCommand)
     .use(difficultyCommand)
     // Blockchain Commands
     .use(blockchainCommand)

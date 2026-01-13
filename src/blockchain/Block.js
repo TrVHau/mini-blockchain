@@ -57,6 +57,18 @@ class Block {
 
     const reward = this.coinbaseTx ? this.coinbaseTx.amount : 0;
 
+    // Format transactions for display with shortened addresses
+    let txDisplay = this.data;
+    if (Array.isArray(this.data) && this.data.length > 0) {
+      txDisplay = this.data.map((tx) => ({
+        from: tx.from ? shortenAddress(tx.from) : tx.from,
+        to: tx.to ? shortenAddress(tx.to) : tx.to,
+        amount: tx.amount,
+        fee: tx.fee,
+        type: tx.type,
+      }));
+    }
+
     return `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Block #${this.index}
@@ -69,7 +81,7 @@ Miner Address : ${minerAddr}
 Mining Reward : ${reward} coins
 Transactions  : ${this.transactions.length}
 Total Fees    : ${this.totalFees} coins
-Data          : ${JSON.stringify(this.data)}
+Data          : ${JSON.stringify(txDisplay)}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
   }
 }
