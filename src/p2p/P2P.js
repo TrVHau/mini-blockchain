@@ -1,6 +1,8 @@
 const WebSocket = require("ws");
 const Messages = require("./Messages.js");
 const MESSAGE_TYPE = require("./message-type.js");
+const { Transaction } = require("../blockchain/Transaction.js");
+const { CoinbaseTransaction } = require("../blockchain/CoinbaseTransaction.js");
 
 class P2P {
   constructor(blockchain) {
@@ -39,7 +41,27 @@ class P2P {
       [MESSAGE_TYPE.TRANSACTION]: () => {
         // theem vaof mempool neu valid
         try {
-          this.blockchain.addTransaction(data.data.transaction);
+          const txData = data.data.transaction;
+          let transaction;
+
+          // Recreate transaction instance from JSON
+          if (txData.type === "COINBASE") {
+            transaction = new CoinbaseTransaction(txData.to, txData.amount);
+          } else {
+            transaction = new Transaction(
+              txData.from,
+              txData.to,
+              txData.amount,
+              txData.fee
+            );
+            transaction.signature = txData.signature;
+            transaction.timestamp = txData.timestamp;
+          }
+
+          // Lấy public key từ address (from)
+          const senderPublicKey = txData.from; // Giả sử from chính là public key
+
+          this.blockchain.addTransaction(transaction, senderPublicKey);
           console.log("Transaction added to mempool from peer");
         } catch (err) {
           console.error("Invalid transaction received from peer:", err.message);
