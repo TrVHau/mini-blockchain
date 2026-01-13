@@ -1,7 +1,7 @@
 const { Block } = require("./Block");
 
 class BlockChain {
-  constructor(difficulty = 2) {
+  constructor(difficulty = 4) {
     this.chain = [Block.genesis()];
     this.difficulty = difficulty;
     this.mempool = [];

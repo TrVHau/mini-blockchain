@@ -1,3 +1,4 @@
+const { CoinbaseTransaction } = require("./CoinbaseTransaction.js");
 const crypto = require("crypto");
 class Block {
   constructor(index, data, previousHash, minerAddress = null) {
@@ -28,15 +29,20 @@ class Block {
   static genesis() {
     return new Block(0, "Genesis Block", "0");
   }
-  mineBlock(difficulty) {
+  mineBlock(difficulty, minerAddress) {
+    this.totalFees = this.transactions.reduce(
+      (sum, tx) => sum + (tx.fee || 0),
+      0
+    );
+
+    this.coinbaseTx = new CoinbaseTransaction(minerAddress, this.index);
     const target = "0".repeat(difficulty);
-    let attempts = 0;
+
+    // mining loop
     while (!this.hash.startsWith(target)) {
       this.nonce++;
-      attempts++;
       this.hash = this.calculateHash();
     }
-    console.log(`Block mined: ${this.hash} in ${attempts} attempts`);
   }
   toString() {
     return `Block -
