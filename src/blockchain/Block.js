@@ -1,20 +1,26 @@
 const crypto = require("crypto");
 class Block {
-  constructor(index, data, previousHash) {
+  constructor(index, data, previousHash, minerAddress = null) {
     this.index = index;
     this.data = data;
     this.previousHash = previousHash;
     this.timestamp = Date.now();
     this.nonce = 0;
     this.hash = this.calculateHash();
+
+    this.minerAddress = minerAddress;
+    this.coinbaseTx = null; //set sau
+    this.transactions = [];
+    this.totalFees = 0;
   }
+
   calculateHash() {
+    const txData = JSON.stringify(this.transactions);
     return crypto
       .createHash("sha256")
       .update(
-        `${this.index}|${this.previousHash}|${this.timestamp}|${
-          this.nonce
-        }|${JSON.stringify(this.data)}`
+        `${this.index}|${this.previousHash}|${this.timestamp}
+        |${this.nonce}|${txData}|${txData}`
       )
       .digest("hex");
   }

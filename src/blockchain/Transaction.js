@@ -1,17 +1,25 @@
 const crypto = require("crypto");
 
 class Transaction {
-  constructor(from, to, amount) {
+  constructor(from, to, amount, fee = 0) {
     this.from = from;
     this.to = to;
     this.amount = amount;
+    this.fee = fee;
     this.timestamp = Date.now();
+    this.type = "TRANSFER";
+  }
+
+  getTotalCost() {
+    return this.amount + this.fee;
   }
 
   calculateHash() {
     return crypto
       .createHash("sha256")
-      .update(`${this.from}|${this.to}|${this.amount}|${this.timestamp}`)
+      .update(
+        `${this.from}|${this.to}|${this.amount}|${this.fee}|${this.timestamp}`
+      )
       .digest("hex");
   }
 
