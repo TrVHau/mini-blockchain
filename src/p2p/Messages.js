@@ -1,38 +1,44 @@
-const messageType = require("./message-type.js");
-const {
-  REQUEST_LATEST_BLOCK,
-  RECEIVE_LATEST_BLOCK,
-  REQUEST_BLOCKCHAIN,
-  RECEIVE_BLOCKCHAIN,
-  REQUEST_TRANSACTIONS,
-  RECEIVE_TRANSACTIONS,
-} = messageType;
+const MESSAGE_TYPE = require("./message-type.js");
 
 class Messages {
-  static getLatestBlock() {
-    return {
-      type: REQUEST_LATEST_BLOCK,
-    };
+  static createMessage(type, data = null) {
+    const message = { type };
+    if (data !== null) {
+      message.data = data;
+    }
+    return JSON.stringify(message);
   }
 
-  static sendLatestBlock(block) {
-    return {
-      type: RECEIVE_LATEST_BLOCK,
-      data: block,
-    };
+  static newBlock(block) {
+    return this.createMessage(MESSAGE_TYPE.NEW_BLOCK, { block });
   }
 
-  static getBlockchain() {
-    return {
-      type: REQUEST_BLOCKCHAIN,
-    };
+  static transaction(transaction) {
+    return this.createMessage(MESSAGE_TYPE.TRANSACTION, { transaction });
   }
 
-  static sendBlockchain(blockchain) {
-    return {
-      type: RECEIVE_BLOCKCHAIN,
-      data: blockchain,
-    };
+  static requestChain() {
+    return this.createMessage(MESSAGE_TYPE.REQUEST_CHAIN);
+  }
+
+  static receiveChain(chain) {
+    return this.createMessage(MESSAGE_TYPE.RECEIVE_CHAIN, { chain });
+  }
+
+  static requestLatest() {
+    return this.createMessage(MESSAGE_TYPE.REQUEST_LATEST);
+  }
+
+  static requestPeers() {
+    return this.createMessage(MESSAGE_TYPE.REQUEST_PEERS);
+  }
+
+  static parse(message) {
+    try {
+      return JSON.parse(message);
+    } catch (err) {
+      throw new Error(`Invalid message format: ${err.message}`);
+    }
   }
 }
 
