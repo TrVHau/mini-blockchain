@@ -246,10 +246,6 @@ class P2P {
 
   syncBlockchain() {
     try {
-      if (this.peers.length === 0) {
-        console.log("No peers to sync with.");
-        return;
-      }
       console.log("Requesting blockchain from peers...");
       this.requestBlockchain();
     } catch (err) {

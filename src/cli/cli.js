@@ -3,6 +3,7 @@ const { P2P } = require("../p2p/P2P.js");
 const { BlockChain } = require("../blockchain/BlockChain.js");
 const { WalletManager } = require("../wallet/WalletManager.js");
 const { Transaction } = require("../blockchain/Transaction.js");
+const { shortenAddress } = require("../util/AddressHelper.js");
 
 const walletManager = new WalletManager(); // thêm ví quản lý ví
 const blockchain = new BlockChain();
@@ -92,7 +93,11 @@ function blockchainCommand(vorpal) {
     .command("blockchain", "See the current state of the blockchain.")
     .alias("bc")
     .action(function (args, callback) {
-      this.log(blockchain.get());
+      const chain = blockchain.get();
+      this.log(`\nBlockchain (${chain.length} blocks):\n`);
+      chain.forEach((block) => {
+        this.log(block.toString());
+      });
       callback();
     });
 }
@@ -129,18 +134,20 @@ function mineCommand(vorpal) {
         const data = args.data || "";
 
         // đào block mới
-        this.log("Mining new block for wallet: " + args.wallet);
+        this.log(`\nMining new block for wallet: ${args.wallet}...`);
         const block = blockchain.mineBlock(minerAddress, data);
 
         // broadcast block mới đến các peer
         p2p.broadcastNewBlock(block);
         const reward = blockchain.getMiningReward();
 
-        this.log(`Block mined successfully!`);
-        this.log(`Block #${block.index} with hash: ${block.hash}`);
-        this.log(`Reward: ${reward}`);
+        this.log(`\nBlock mined successfully!`);
+        this.log(`Block #${block.index}`);
+        this.log(`Hash: ${block.hash}`);
+        this.log(`Miner: ${shortenAddress(minerAddress)}`);
+        this.log(`Reward: ${reward} coins`);
         this.log(`Transactions: ${block.transactions.length}`);
-        this.log(`Total fees: ${block.getTotalFees()} coins`);
+        this.log(`Total Fees: ${block.totalFees} coins\n`);
       } catch (err) {
         this.log(`Error mining block: ${err.message}`);
       }
@@ -448,9 +455,8 @@ function walletCreateCommand(vorpal) {
     .action(function (args, callback) {
       try {
         const publicKey = walletManager.createWallet(args.name);
-        this.log(
-          `Wallet "${args.name}" \n Created with public key: ${publicKey}`
-        );
+        this.log(`\nWallet created: ${args.name}`);
+        this.log(`Address: ${shortenAddress(publicKey)}\n`);
       } catch (err) {
         this.log(`Error creating wallet: ${err.message}`);
       }
@@ -472,8 +478,8 @@ function listWalletsCommand(vorpal) {
             const address = walletManager.getPublicKey(name);
             const balance = blockchain.getBalance(address);
             this.log(`${i + 1}. ${name}`);
-            this.log(` Address: ${address.substring(0, 50)}...`);
-            this.log(` Balance: ${balance} coins`);
+            this.log(`   Address: ${shortenAddress(address)}`);
+            this.log(`   Balance: ${balance} coins`);
             this.log("-----------------------");
           });
         }
@@ -494,8 +500,8 @@ function balanceCommand(vorpal) {
         const address = walletManager.getPublicKey(args.name);
         const balance = blockchain.getBalance(address);
         this.log(`\nWallet: ${args.name}`);
-        this.log(` Address: ${address.substring(0, 50)}...`);
-        this.log(` Balance: ${balance} coins\n`);
+        this.log(`Address: ${shortenAddress(address)}`);
+        this.log(`Balance: ${balance} coins\n`);
       } catch (err) {
         this.log(`Error checking balance: ${err.message}`);
       }
@@ -568,8 +574,8 @@ function allBalancesCommand(vorpal) {
         } else {
           this.log("\nAll Wallet Balances:\n");
           entries.forEach(([address, balance]) => {
-            this.log(` Address: ${address.substring(0, 50)}...`);
-            this.log(` Balance: ${balance} coins`);
+            this.log(`Address: ${shortenAddress(address)}`);
+            this.log(`Balance: ${balance} coins`);
             this.log("-----------------------");
           });
         }

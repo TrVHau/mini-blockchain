@@ -39,11 +39,15 @@ class BlockChain {
     const receivedBlock = new Block(
       block.index,
       block.data,
-      block.previousHash
+      block.previousHash,
+      block.minerAddress
     );
     receivedBlock.timestamp = block.timestamp;
     receivedBlock.nonce = block.nonce;
     receivedBlock.hash = block.hash;
+    receivedBlock.coinbaseTx = block.coinbaseTx;
+    receivedBlock.transactions = block.transactions || [];
+    receivedBlock.totalFees = block.totalFees || 0;
 
     // Verify hash
     if (receivedBlock.calculateHash() !== block.hash) {
@@ -58,6 +62,10 @@ class BlockChain {
     }
 
     this.chain.push(receivedBlock);
+
+    // Update balance tracker after adding block
+    this.balanceTracker.updateBalance(this.chain);
+
     console.log(`Block #${block.index} accepted and added to chain`);
     return true;
   }
@@ -75,11 +83,15 @@ class BlockChain {
         blockToCheck = new Block(
           currentBlock.index,
           currentBlock.data,
-          currentBlock.previousHash
+          currentBlock.previousHash,
+          currentBlock.minerAddress
         );
         blockToCheck.timestamp = currentBlock.timestamp;
         blockToCheck.nonce = currentBlock.nonce;
         blockToCheck.hash = currentBlock.hash;
+        blockToCheck.coinbaseTx = currentBlock.coinbaseTx;
+        blockToCheck.transactions = currentBlock.transactions || [];
+        blockToCheck.totalFees = currentBlock.totalFees || 0;
       }
 
       // check xem bi sửa chưa
@@ -121,13 +133,20 @@ class BlockChain {
       const block = new Block(
         blockData.index,
         blockData.data,
-        blockData.previousHash
+        blockData.previousHash,
+        blockData.minerAddress
       );
       block.timestamp = blockData.timestamp;
       block.nonce = blockData.nonce;
       block.hash = blockData.hash;
+      block.coinbaseTx = blockData.coinbaseTx;
+      block.transactions = blockData.transactions || [];
+      block.totalFees = blockData.totalFees || 0;
       return block;
     });
+
+    // Update balance tracker after replacing chain
+    this.balanceTracker.updateBalance(this.chain);
 
     return true;
   }
@@ -218,14 +237,6 @@ class BlockChain {
   getMiningReward() {
     const latestBlock = this.getLatestBlock();
     return latestBlock.coinbaseTx ? latestBlock.coinbaseTx.amount : 0;
-  }
-
-  getBalance(address) {
-    return this.balanceTracker.getBalance(address);
-  }
-
-  getAllBalances() {
-    return this.balanceTracker.getAllBalances();
   }
 
   addBlock(data) {

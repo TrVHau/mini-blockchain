@@ -1,4 +1,5 @@
 const { CoinbaseTransaction } = require("./CoinbaseTransaction.js");
+const { shortenAddress } = require("../util/AddressHelper.js");
 const crypto = require("crypto");
 class Block {
   constructor(index, data, previousHash, minerAddress = null) {
@@ -50,13 +51,26 @@ class Block {
   }
 
   toString() {
-    return `Block -
-      Index       : ${this.index}
-      Data        : ${JSON.stringify(this.data)}
-      PreviousHash: ${this.previousHash}
-      Hash        : ${this.hash}
-      Timestamp   : ${this.timestamp}
-      Nonce       : ${this.nonce}`;
+    const minerAddr = this.minerAddress
+      ? shortenAddress(this.minerAddress)
+      : "None";
+
+    const reward = this.coinbaseTx ? this.coinbaseTx.amount : 0;
+
+    return `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Block #${this.index}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Hash          : ${this.hash}
+Previous Hash : ${this.previousHash}
+Timestamp     : ${new Date(this.timestamp).toLocaleString()}
+Nonce         : ${this.nonce}
+Miner Address : ${minerAddr}
+Mining Reward : ${reward} coins
+Transactions  : ${this.transactions.length}
+Total Fees    : ${this.totalFees} coins
+Data          : ${JSON.stringify(this.data)}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
   }
 }
 exports.Block = Block;
