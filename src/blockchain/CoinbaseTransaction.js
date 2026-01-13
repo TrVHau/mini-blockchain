@@ -1,7 +1,7 @@
 class CoinbaseTransaction {
-  constructor(minerAdress, blockHeight) {
+  constructor(minerAddress, blockHeight) {
     this.from = "COINBASE";
-    this.to = minerAdress;
+    this.to = minerAddress;
     this.amount = this.calculateReward(blockHeight);
     this.fee = 0;
     this.timestamp = Date.now();
