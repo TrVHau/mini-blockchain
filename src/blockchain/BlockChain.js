@@ -1,9 +1,10 @@
 const { Block } = require("./Block");
 const { BalanceTracker } = require("../wallet/BalanceTracker.js");
 const { shortenAddress } = require("../util/AddressHelper.js");
+const BLOCKCHAIN_CONSTANTS = require("../config/constants.js");
 
 class BlockChain {
-  constructor(difficulty = 4) {
+  constructor(difficulty = BLOCKCHAIN_CONSTANTS.DEFAULT_DIFFICULTY) {
     this.chain = [Block.genesis()];
     this.difficulty = difficulty;
     this.mempool = [];
@@ -16,6 +17,27 @@ class BlockChain {
 
   getLatestBlock() {
     return this.chain[this.chain.length - 1];
+  }
+
+  // Helper method to recreate Block instance from plain object
+  _recreateBlock(blockData) {
+    if (typeof blockData.calculateHash === "function") {
+      return blockData;
+    }
+
+    const block = new Block(
+      blockData.index,
+      blockData.data,
+      blockData.previousHash,
+      blockData.minerAddress
+    );
+    block.timestamp = blockData.timestamp;
+    block.nonce = blockData.nonce;
+    block.hash = blockData.hash;
+    block.coinbaseTx = blockData.coinbaseTx;
+    block.transactions = blockData.transactions || [];
+    block.totalFees = blockData.totalFees || 0;
+    return block;
   }
 
   receiveBlock(block) {
@@ -37,18 +59,7 @@ class BlockChain {
     }
 
     // Recreate block object để có đầy đủ methods
-    const receivedBlock = new Block(
-      block.index,
-      block.data,
-      block.previousHash,
-      block.minerAddress
-    );
-    receivedBlock.timestamp = block.timestamp;
-    receivedBlock.nonce = block.nonce;
-    receivedBlock.hash = block.hash;
-    receivedBlock.coinbaseTx = block.coinbaseTx;
-    receivedBlock.transactions = block.transactions || [];
-    receivedBlock.totalFees = block.totalFees || 0;
+    const receivedBlock = this._recreateBlock(block);
 
     // Verify hash
     if (receivedBlock.calculateHash() !== block.hash) {
@@ -79,21 +90,7 @@ class BlockChain {
       const previousBlock = chainToValidate[i - 1];
 
       // Recreate block nếu cần để có method calculateHash
-      let blockToCheck = currentBlock;
-      if (typeof currentBlock.calculateHash !== "function") {
-        blockToCheck = new Block(
-          currentBlock.index,
-          currentBlock.data,
-          currentBlock.previousHash,
-          currentBlock.minerAddress
-        );
-        blockToCheck.timestamp = currentBlock.timestamp;
-        blockToCheck.nonce = currentBlock.nonce;
-        blockToCheck.hash = currentBlock.hash;
-        blockToCheck.coinbaseTx = currentBlock.coinbaseTx;
-        blockToCheck.transactions = currentBlock.transactions || [];
-        blockToCheck.totalFees = currentBlock.totalFees || 0;
-      }
+      const blockToCheck = this._recreateBlock(currentBlock);
 
       // Check xem bị sửa chưa
       if (blockToCheck.hash !== blockToCheck.calculateHash()) {
@@ -127,24 +124,7 @@ class BlockChain {
     );
 
     // Convert plain objects to Block instances
-    this.chain = newChain.map((blockData) => {
-      if (typeof blockData.calculateHash === "function") {
-        return blockData;
-      }
-      const block = new Block(
-        blockData.index,
-        blockData.data,
-        blockData.previousHash,
-        blockData.minerAddress
-      );
-      block.timestamp = blockData.timestamp;
-      block.nonce = blockData.nonce;
-      block.hash = blockData.hash;
-      block.coinbaseTx = blockData.coinbaseTx;
-      block.transactions = blockData.transactions || [];
-      block.totalFees = blockData.totalFees || 0;
-      return block;
-    });
+    this.chain = newChain.map((blockData) => this._recreateBlock(blockData));
 
     // Update balance tracker after replacing chain
     this.balanceTracker.updateBalance(this.chain);

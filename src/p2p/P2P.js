@@ -3,6 +3,7 @@ const Messages = require("./Messages.js");
 const PeerManager = require("./PeerManager.js");
 const BlockHandler = require("./BlockHandler.js");
 const MessageHandler = require("./MessageHandler.js");
+const BLOCKCHAIN_CONSTANTS = require("../config/constants.js");
 
 class P2P {
   constructor(blockchain) {
@@ -91,7 +92,9 @@ class P2P {
     console.log(`Attempting to connect to ${address}...`);
 
     try {
-      const socket = new WebSocket(address, { handshakeTimeout: 5000 });
+      const socket = new WebSocket(address, { 
+        handshakeTimeout: BLOCKCHAIN_CONSTANTS.WEBSOCKET_HANDSHAKE_TIMEOUT 
+      });
 
       socket.on("open", () => {
         socket._peerAddress = address;

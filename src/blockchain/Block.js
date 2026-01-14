@@ -1,6 +1,7 @@
 const { CoinbaseTransaction } = require("./CoinbaseTransaction.js");
 const { shortenAddress } = require("../util/AddressHelper.js");
 const crypto = require("crypto");
+const BLOCKCHAIN_CONSTANTS = require("../config/constants.js");
 class Block {
   constructor(index, data, previousHash, minerAddress = null) {
     this.index = index;
@@ -27,9 +28,13 @@ class Block {
   }
 
   static genesis() {
-    const genesisBlock = new Block(0, "Genesis Block", "0");
+    const genesisBlock = new Block(
+      0,
+      BLOCKCHAIN_CONSTANTS.GENESIS_DATA,
+      BLOCKCHAIN_CONSTANTS.GENESIS_PREVIOUS_HASH
+    );
     // Set fixed timestamp for genesis block to ensure same hash across all nodes
-    genesisBlock.timestamp = 1640000000000; // Fixed timestamp: Dec 20, 2021
+    genesisBlock.timestamp = BLOCKCHAIN_CONSTANTS.GENESIS_TIMESTAMP;
     genesisBlock.hash = genesisBlock.calculateHash();
     return genesisBlock;
   }

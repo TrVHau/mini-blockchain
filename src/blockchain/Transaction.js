@@ -1,7 +1,13 @@
 const crypto = require("crypto");
+const BLOCKCHAIN_CONSTANTS = require("../config/constants.js");
 
 class Transaction {
-  constructor(from, to, amount, fee = 0) {
+  constructor(
+    from,
+    to,
+    amount,
+    fee = BLOCKCHAIN_CONSTANTS.DEFAULT_TRANSACTION_FEE
+  ) {
     this.from = from;
     this.to = to;
     this.amount = amount;
