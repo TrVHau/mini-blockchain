@@ -1,5 +1,6 @@
 const { Block } = require("./Block");
 const { BalanceTracker } = require("../wallet/BalanceTracker.js");
+const { shortenAddress } = require("../util/AddressHelper.js");
 
 class BlockChain {
   constructor(difficulty = 4) {
@@ -94,11 +95,11 @@ class BlockChain {
         blockToCheck.totalFees = currentBlock.totalFees || 0;
       }
 
-      // check xem bi sửa chưa
+      // Check xem bị sửa chưa
       if (blockToCheck.hash !== blockToCheck.calculateHash()) {
         return false;
       }
-      // chck liên kết có bị phá vỡ không
+      // Check liên kết có bị phá vỡ không
       if (blockToCheck.previousHash !== previousBlock.hash) {
         return false;
       }
@@ -148,33 +149,42 @@ class BlockChain {
     // Update balance tracker after replacing chain
     this.balanceTracker.updateBalance(this.chain);
 
-    return true;
-  }
+    // Reset mempool khi nhận chain mới vì các tx cũ có thể không còn valid
+    this.mempool = [];
+    console.log("Mempool cleared after receiving new chain");
 
-  addBlock(data) {
-    const preBlock = this.getLatestBlock();
-    const newBlock = new Block(preBlock.index + 1, data, preBlock.hash);
-    newBlock.mineBlock(this.difficulty, "SYSTEM");
-    this.chain.push(newBlock);
-    this.balanceTracker.updateBalance(this.chain);
+    return true;
   }
 
   addToMempool(transaction) {
     this.mempool.push(transaction);
   }
 
-  mineMempool() {
+  mineMempool(minerAddress = "SYSTEM") {
     if (this.mempool.length === 0) {
       console.log("Mempool is empty, nothing to mine.");
       return;
     }
-    this.addBlock(this.mempool);
+    const block = this.mineBlock(minerAddress, null);
     console.log("Block mined successfully!");
-    this.mempool = [];
+    return block;
   }
 
   // thêm validate và transaction vào mempool
   addTransaction(transaction, sendersPublicKey) {
+    // Kiểm tra xem transaction đã có trong mempool chưa
+    const isDuplicate = this.mempool.some(
+      (tx) =>
+        tx.from === transaction.from &&
+        tx.to === transaction.to &&
+        tx.amount === transaction.amount &&
+        tx.timestamp === transaction.timestamp
+    );
+
+    if (isDuplicate) {
+      throw new Error("Transaction already exists in mempool");
+    }
+
     // validate signature
     if (transaction.type === "TRANSFER") {
       if (!transaction.isValid(sendersPublicKey)) {
@@ -182,12 +192,20 @@ class BlockChain {
       }
     }
 
-    // validate balance
+    // validate balance - phải tính cả pending transactions trong mempool
+    const currentBalance = this.balanceTracker.getBalance(transaction.from);
+
+    // Tính tổng số tiền đang pending trong mempool từ cùng address
+    const pendingAmount = this.mempool
+      .filter((tx) => tx.from === transaction.from)
+      .reduce((sum, tx) => sum + tx.getTotalCost(), 0);
+
     const totalCost = transaction.getTotalCost();
-    if (!this.balanceTracker.hasBalance(transaction.from, totalCost)) {
-      const currentBalance = this.balanceTracker.getBalance(transaction.from);
+    const availableBalance = currentBalance - pendingAmount;
+
+    if (availableBalance < totalCost) {
       throw new Error(
-        `Insufficient balance. Current: ${currentBalance}, Required: ${totalCost}`
+        `Insufficient balance. Current: ${currentBalance}, Pending: ${pendingAmount}, Available: ${availableBalance}, Required: ${totalCost}`
       );
     }
 
@@ -220,8 +238,10 @@ class BlockChain {
     // update balances
     this.balanceTracker.updateBalance(this.chain);
 
+    const displayAddress =
+      minerAddress === "SYSTEM" ? "SYSTEM" : shortenAddress(minerAddress);
     console.log(
-      `Block #${newBlock.index} mined successfully by ${minerAddress}`
+      `Block #${newBlock.index} mined successfully by ${displayAddress}`
     );
     return newBlock;
   }

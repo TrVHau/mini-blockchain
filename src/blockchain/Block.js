@@ -57,6 +57,29 @@ class Block {
 
     const reward = this.coinbaseTx ? this.coinbaseTx.amount : 0;
 
+    // Format transactions for display with shortened addresses
+    let txDisplay = this.data;
+
+    // Nếu có transactions trong block, hiển thị chúng
+    if (this.transactions && this.transactions.length > 0) {
+      txDisplay = this.transactions.map((tx) => ({
+        from: tx.from ? shortenAddress(tx.from) : tx.from,
+        to: tx.to ? shortenAddress(tx.to) : tx.to,
+        amount: tx.amount,
+        fee: tx.fee || 0,
+        type: tx.type,
+      }));
+    } else if (Array.isArray(this.data) && this.data.length > 0) {
+      // Fallback: nếu data là array (legacy)
+      txDisplay = this.data.map((tx) => ({
+        from: tx.from ? shortenAddress(tx.from) : tx.from,
+        to: tx.to ? shortenAddress(tx.to) : tx.to,
+        amount: tx.amount,
+        fee: tx.fee || 0,
+        type: tx.type,
+      }));
+    }
+
     return `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Block #${this.index}
@@ -69,7 +92,7 @@ Miner Address : ${minerAddr}
 Mining Reward : ${reward} coins
 Transactions  : ${this.transactions.length}
 Total Fees    : ${this.totalFees} coins
-Data          : ${JSON.stringify(this.data)}
+Data          : ${JSON.stringify(txDisplay)}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
   }
 }
