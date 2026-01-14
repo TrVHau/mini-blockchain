@@ -59,12 +59,23 @@ class Block {
 
     // Format transactions for display with shortened addresses
     let txDisplay = this.data;
-    if (Array.isArray(this.data) && this.data.length > 0) {
+
+    // Nếu có transactions trong block, hiển thị chúng
+    if (this.transactions && this.transactions.length > 0) {
+      txDisplay = this.transactions.map((tx) => ({
+        from: tx.from ? shortenAddress(tx.from) : tx.from,
+        to: tx.to ? shortenAddress(tx.to) : tx.to,
+        amount: tx.amount,
+        fee: tx.fee || 0,
+        type: tx.type,
+      }));
+    } else if (Array.isArray(this.data) && this.data.length > 0) {
+      // Fallback: nếu data là array (legacy)
       txDisplay = this.data.map((tx) => ({
         from: tx.from ? shortenAddress(tx.from) : tx.from,
         to: tx.to ? shortenAddress(tx.to) : tx.to,
         amount: tx.amount,
-        fee: tx.fee,
+        fee: tx.fee || 0,
         type: tx.type,
       }));
     }
