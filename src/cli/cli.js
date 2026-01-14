@@ -21,6 +21,9 @@ function cli() {
     .use(connectCommand)
     .use(peersCommand)
     .use(statusCommand)
+    .use(closeServerCommand)
+    .use(disconnectCommand)
+    .use(disconnectAllCommand)
     // Wallet Commands
     .use(walletCreateCommand)
     .use(listWalletsCommand)
@@ -53,6 +56,59 @@ module.exports = cli;
 function welcome(vorpal) {
   vorpal.log("Welcome to Blockchain CLI!");
   vorpal.exec("help");
+}
+
+// Close Server command: Đóng server P2P
+function closeServerCommand(vorpal) {
+  vorpal
+    .command("close-server", "Close the P2P server.")
+    .alias("cs")
+    .action(function (args, callback) {
+      try {
+        p2p.closeServer();
+      } catch (err) {
+        this.log(`Error closing server: ${err.message}`);
+      }
+      callback();
+    });
+}
+
+// Disconnect command: Ngắt kết nối một peer
+function disconnectCommand(vorpal) {
+  vorpal
+    .command(
+      "disconnect <index>",
+      "Disconnect a specific peer by index. Use 'peers' to see the list."
+    )
+    .alias("dc")
+    .action(function (args, callback) {
+      try {
+        const index = parseInt(args.index) - 1; // -1 vì hiển thị từ 1 nhưng mảng từ 0
+        if (isNaN(index) || index < 0) {
+          this.log("Invalid index! Use 'peers' to see the list.");
+        } else {
+          p2p.disconnectPeer(index);
+        }
+      } catch (err) {
+        this.log(`Error disconnecting peer: ${err.message}`);
+      }
+      callback();
+    });
+}
+
+// Disconnect All command: Ngắt kết nối tất cả peers
+function disconnectAllCommand(vorpal) {
+  vorpal
+    .command("disconnect-all", "Disconnect all connected peers.")
+    .alias("dca")
+    .action(function (args, callback) {
+      try {
+        p2p.disconnectAllPeers();
+      } catch (err) {
+        this.log(`Error disconnecting all peers: ${err.message}`);
+      }
+      callback();
+    });
 }
 
 // Connect command: Kết nối đến peer
@@ -327,17 +383,34 @@ function mempoolCommand(vorpal) {
 // Mining Commands
 function mineMempoolCommand(vorpal) {
   vorpal
-    .command("mine-mempool", "Mine all pending transactions in mempool.")
+    .command(
+      "mine-mempool <wallet>",
+      "Mine all pending transactions in mempool. Eg: mine-mempool Alice"
+    )
     .alias("mm")
     .action(function (args, callback) {
       try {
         if (blockchain.mempool.length === 0) {
           this.log("Mempool is empty, nothing to mine.");
         } else {
-          this.log(`Mining ${blockchain.mempool.length} transactions...`);
-          blockchain.mineMempool();
-          p2p.broadcastNewBlock(blockchain.getLatestBlock());
-          this.log("Block mined and broadcasted successfully!");
+          // Lấy miner address
+          const minerAddress = walletManager.getPublicKey(args.wallet);
+
+          this.log(
+            `Mining ${blockchain.mempool.length} transactions for wallet: ${args.wallet}...`
+          );
+          const block = blockchain.mineMempool(minerAddress);
+
+          // Broadcast block mới đến các peer
+          p2p.broadcastNewBlock(block);
+
+          const reward = blockchain.getMiningReward();
+          this.log(`\nBlock mined and broadcasted successfully!`);
+          this.log(`Block #${block.index}`);
+          this.log(`Miner: ${args.wallet}`);
+          this.log(`Reward: ${reward} coins`);
+          this.log(`Transactions: ${block.transactions.length}`);
+          this.log(`Total Fees: ${block.totalFees} coins\n`);
         }
       } catch (err) {
         this.log(`Error mining mempool: ${err.message}`);

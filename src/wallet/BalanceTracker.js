@@ -15,12 +15,21 @@ class BalanceTracker {
 
       // xử lý regular transactions
       if (block.transactions && block.transactions.length > 0) {
+        let totalFees = 0;
+
         block.transactions.forEach((tx) => {
           // trừ tiền người gửi
           this.debit(tx.from, tx.amount + (tx.fee || 0));
           // cộng tiền người nhận
           this.credit(tx.to, tx.amount);
+          // tính tổng fee
+          totalFees += tx.fee || 0;
         });
+
+        // Cộng fees cho miner
+        if (totalFees > 0 && block.minerAddress) {
+          this.credit(block.minerAddress, totalFees);
+        }
       }
     });
   }

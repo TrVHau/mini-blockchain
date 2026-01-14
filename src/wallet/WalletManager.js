@@ -10,14 +10,14 @@ class WalletManager {
     this.loadAllWallets();
   }
 
-  // taoj thư mục lưu wallet nếu chưa tồn tại
+  // Tạo thư mục lưu wallet nếu chưa tồn tại
   ensureWalletDir() {
     if (!fs.existsSync(this.walletFileDir)) {
       fs.mkdirSync(this.walletFileDir, { recursive: true });
     }
   }
 
-  // taoj wallet mới và lưu vào file
+  // Tạo wallet mới và lưu vào file
   createWallet(name) {
     if (this.wallets.has(name)) {
       throw new Error("Wallet with this name already exists");
@@ -25,13 +25,13 @@ class WalletManager {
     const wallet = createWallet();
     this.wallets.set(name, wallet);
 
-    // luu wallet vào file
+    // Lưu wallet vào file
     const filePath = path.join(this.walletFileDir, `${name}.json`);
     fs.writeFileSync(filePath, JSON.stringify(wallet));
     return wallet.publicKey;
   }
 
-  // load wallet từ file
+  // Load wallet từ file
   loadWallet(name) {
     const filePath = path.join(this.walletFileDir, `${name}.json`);
     if (!fs.existsSync(filePath)) {
@@ -43,7 +43,7 @@ class WalletManager {
     return wallet;
   }
 
-  // load tất cả wallet từ file
+  // Load tất cả wallet từ file
   loadAllWallets() {
     if (!fs.existsSync(this.walletFileDir)) {
       return;
@@ -60,7 +60,7 @@ class WalletManager {
       }
     });
   }
-  //list tất cả wallet đã load
+  // List tất cả wallet đã load
   listWallets() {
     return Array.from(this.wallets.keys());
   }
