@@ -10,6 +10,7 @@ const transactionCommands = require("./commands/transaction.js");
 const miningCommands = require("./commands/mining.js");
 const blockchainCommands = require("./commands/blockchain.js");
 const utilityCommands = require("./commands/utility.js");
+const historyCommands = require("./commands/history.js");
 
 // Khởi tạo các thành phần chính
 const walletManager = new WalletManager();
@@ -58,6 +59,10 @@ function cli() {
   utilityCommands.importCommand(vorpal, blockchain);
   utilityCommands.clearCommand(vorpal);
 
+  // Load History Commands
+  historyCommands.historyCommand(vorpal, walletManager, blockchain);
+
+  // Set CLI prompt
   vorpal.delimiter("BLOCKCHAIN => ").show();
 }
 
