@@ -1,6 +1,7 @@
 // Transaction Commands: send, mempool
 const { Transaction } = require("../../blockchain/Transaction.js");
 const { shortenAddress } = require("../../util/AddressHelper.js");
+const Validator = require("../../util/Validator.js");
 
 function sendCommand(vorpal, walletManager, blockchain, p2p) {
   vorpal
@@ -23,8 +24,10 @@ function sendCommand(vorpal, walletManager, blockchain, p2p) {
         }
 
         // tạo transaction
-        const amount = parseFloat(args.amount);
-        const fee = args.fee ? parseFloat(args.fee) : 0;
+        const amount = Validator.validateAmount(parseFloat(args.amount));
+        const fee = args.fee
+          ? Validator.validateAmount(parseFloat(args.fee))
+          : 0;
         const transaction = new Transaction(
           fromAddress,
           toAddress,

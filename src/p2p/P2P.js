@@ -4,6 +4,7 @@ const PeerManager = require("./PeerManager.js");
 const BlockHandler = require("./BlockHandler.js");
 const MessageHandler = require("./MessageHandler.js");
 const BLOCKCHAIN_CONSTANTS = require("../config/constants.js");
+const Validator = require("../util/Validator.js");
 
 class P2P {
   constructor(blockchain) {
@@ -75,7 +76,7 @@ class P2P {
     if (
       this.serverPort &&
       port === this.serverPort &&
-      (host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0")
+      Validator.isLocalhost(host)
     ) {
       console.error(
         `Cannot connect to yourself! Server is running on port ${this.serverPort}`

@@ -7,8 +7,8 @@ const BLOCKCHAIN_CONSTANTS = {
   MAX_DIFFICULTY: 6,
 
   // Mining Rewards
-  INITIAL_MINING_REWARD: 50,
-  HALVING_INTERVAL: 100, // Blocks between halving events
+  INITIAL_MINING_REWARD: 16, // Initial reward for mining a block
+  HALVING_INTERVAL: 5, // Blocks between halving events
 
   // Genesis Block
   GENESIS_TIMESTAMP: 1640000000000, // Fixed: Dec 20, 2021

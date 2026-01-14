@@ -1,4 +1,5 @@
 // Network Commands: open, connect, peers, status, close-server, disconnect
+const Validator = require("../../util/Validator.js");
 
 function openCommand(vorpal, p2p) {
   vorpal
@@ -9,18 +10,14 @@ function openCommand(vorpal, p2p) {
     .alias("o")
     .action(function (args, callback) {
       try {
-        if (args.port) {
-          const port = parseInt(args.port);
-          if (Number.isInteger(port) && port > 0 && port <= 65535) {
-            p2p.startServer(port);
-          } else {
-            this.log("Invalid port! Must be between 1 and 65535.");
-          }
-        } else {
+        if (!args.port) {
           this.log("Please provide a port number.");
+        } else {
+          const port = Validator.validatePort(args.port);
+          p2p.startServer(port);
         }
       } catch (err) {
-        this.log(`Error opening port: ${err.message}`);
+        this.log(`Error: ${err.message}`);
       }
       callback();
     });

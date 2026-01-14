@@ -2,6 +2,7 @@ const { CoinbaseTransaction } = require("./CoinbaseTransaction.js");
 const { shortenAddress } = require("../util/AddressHelper.js");
 const crypto = require("crypto");
 const BLOCKCHAIN_CONSTANTS = require("../config/constants.js");
+
 class Block {
   constructor(index, data, previousHash, minerAddress = null) {
     this.index = index;

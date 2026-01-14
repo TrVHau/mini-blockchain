@@ -1,6 +1,7 @@
 // Mining Commands: mine, mine-mempool, difficulty
 const { shortenAddress } = require("../../util/AddressHelper.js");
 const BLOCKCHAIN_CONSTANTS = require("../../config/constants.js");
+const Validator = require("../../util/Validator.js");
 
 function mineCommand(vorpal, walletManager, blockchain, p2p) {
   vorpal
@@ -79,18 +80,17 @@ function difficultyCommand(vorpal, blockchain) {
       "Set mining difficulty (1-6). Eg: difficulty 3"
     )
     .action(function (args, callback) {
-      const level = parseInt(args.level);
-      if (
-        level >= BLOCKCHAIN_CONSTANTS.MIN_DIFFICULTY &&
-        level <= BLOCKCHAIN_CONSTANTS.MAX_DIFFICULTY
-      ) {
+      try {
+        const level = Validator.validateDifficulty(
+          args.level,
+          BLOCKCHAIN_CONSTANTS.MIN_DIFFICULTY,
+          BLOCKCHAIN_CONSTANTS.MAX_DIFFICULTY
+        );
         blockchain.difficulty = level;
         this.log(` Mining difficulty set to ${level}`);
         this.log(`   Blocks must start with ${"0".repeat(level)}...`);
-      } else {
-        this.log(
-          ` Difficulty must be between ${BLOCKCHAIN_CONSTANTS.MIN_DIFFICULTY} and ${BLOCKCHAIN_CONSTANTS.MAX_DIFFICULTY}`
-        );
+      } catch (err) {
+        this.log(` Error: ${err.message}`);
       }
       callback();
     });

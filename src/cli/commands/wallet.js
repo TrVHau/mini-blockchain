@@ -1,5 +1,6 @@
 // Wallet Commands: wallet-create, wallets, balance
 const { shortenAddress } = require("../../util/AddressHelper.js");
+const Validator = require("../../util/Validator.js");
 
 function walletCreateCommand(vorpal, walletManager) {
   vorpal
@@ -10,7 +11,8 @@ function walletCreateCommand(vorpal, walletManager) {
     .alias("wc")
     .action(function (args, callback) {
       try {
-        const publicKey = walletManager.createWallet(args.name);
+        const name = Validator.validateWalletName(args.name);
+        const publicKey = walletManager.createWallet(name);
         this.log(`\nWallet created: ${args.name}`);
         this.log(`Address: ${shortenAddress(publicKey)}\n`);
       } catch (err) {
