@@ -27,7 +27,11 @@ class Block {
   }
 
   static genesis() {
-    return new Block(0, "Genesis Block", "0");
+    const genesisBlock = new Block(0, "Genesis Block", "0");
+    // Set fixed timestamp for genesis block to ensure same hash across all nodes
+    genesisBlock.timestamp = 1640000000000; // Fixed timestamp: Dec 20, 2021
+    genesisBlock.hash = genesisBlock.calculateHash();
+    return genesisBlock;
   }
 
   mineBlock(difficulty, minerAddress) {
