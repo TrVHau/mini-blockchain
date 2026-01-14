@@ -262,5 +262,43 @@ class BlockChain {
   addBlock(data) {
     return this.mineBlock("SYSTEM", data);
   }
+
+  getTransactionsHistory(address) {
+    const history = [];
+
+    this.chain.forEach((block) => {
+      // kiểm tra coinbase transaction
+      if (block.coinbaseTx && block.coinbaseTx.to === address) {
+        history.push({
+          type: "MINING_REWARD",
+          from: "SYSTEM",
+          to: block.coinbaseTx.to,
+          amount: block.coinbaseTx.amount,
+          fee: 0,
+          timestamp: block.timestamp,
+          blockIndex: block.index,
+          hash: block.hash.substring(0, 16) + "...",
+        });
+      }
+      // kiểm tra các transaction trong block
+      if (block.transactions && block.transactions.length > 0) {
+        block.transactions.forEach((tx) => {
+          if (tx.from === address || tx.to === address) {
+            history.push({
+              type: tx.from === address ? "SENT" : "RECEIVED",
+              from: tx.from,
+              to: tx.to,
+              amount: tx.amount,
+              fee: tx.fee || 0,
+              timestamp: block.timestamp,
+              blockIndex: block.index,
+              hash: block.hash.substring(0, 16) + "...",
+            });
+          }
+        });
+      }
+    });
+    return history;
+  }
 }
 exports.BlockChain = BlockChain;
