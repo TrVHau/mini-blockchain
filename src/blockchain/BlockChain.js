@@ -29,7 +29,7 @@ class BlockChain {
       blockData.index,
       blockData.data,
       blockData.previousHash,
-      blockData.minerAddress
+      blockData.minerAddress,
     );
     block.timestamp = blockData.timestamp;
     block.nonce = blockData.nonce;
@@ -48,7 +48,7 @@ class BlockChain {
       console.log(
         `Block index mismatch. Expected ${latestBlock.index + 1}, got ${
           block.index
-        }`
+        }`,
       );
       return false;
     }
@@ -78,8 +78,39 @@ class BlockChain {
     // Update balance tracker after adding block
     this.balanceTracker.updateBalance(this.chain);
 
+    // Xóa các transactions đã được confirm khỏi mempool
+    this._removeConfirmedTransactions(receivedBlock);
+
     console.log(`Block #${block.index} accepted and added to chain`);
     return true;
+  }
+
+  /**
+   * Xóa các transactions đã được confirm trong block khỏi mempool
+   */
+  _removeConfirmedTransactions(block) {
+    if (!block.transactions || block.transactions.length === 0) {
+      return;
+    }
+
+    const confirmedTxs = block.transactions;
+    const beforeCount = this.mempool.length;
+
+    this.mempool = this.mempool.filter((mempoolTx) => {
+      // Kiểm tra xem tx trong mempool có match với tx trong block không
+      return !confirmedTxs.some(
+        (confirmedTx) =>
+          confirmedTx.from === mempoolTx.from &&
+          confirmedTx.to === mempoolTx.to &&
+          confirmedTx.amount === mempoolTx.amount &&
+          confirmedTx.timestamp === mempoolTx.timestamp,
+      );
+    });
+
+    const removedCount = beforeCount - this.mempool.length;
+    if (removedCount > 0) {
+      console.log(`  Removed ${removedCount} confirmed tx(s) from mempool`);
+    }
   }
 
   isChainValid(chain = null) {
@@ -120,7 +151,7 @@ class BlockChain {
     }
 
     console.log(
-      `Replacing current chain (${this.chain.length} blocks) with new chain (${newChain.length} blocks)`
+      `Replacing current chain (${this.chain.length} blocks) with new chain (${newChain.length} blocks)`,
     );
 
     // Convert plain objects to Block instances
@@ -151,23 +182,23 @@ class BlockChain {
   }
 
   // thêm validate và transaction vào mempool
-  addTransaction(transaction, sendersPublicKey) {
+  addTransaction(transaction) {
     // Kiểm tra xem transaction đã có trong mempool chưa
     const isDuplicate = this.mempool.some(
       (tx) =>
         tx.from === transaction.from &&
         tx.to === transaction.to &&
         tx.amount === transaction.amount &&
-        tx.timestamp === transaction.timestamp
+        tx.timestamp === transaction.timestamp,
     );
 
     if (isDuplicate) {
       throw new Error("Transaction already exists in mempool");
     }
 
-    // validate signature
+    // validate signature (transaction có sẵn senderPublicKey)
     if (transaction.type === "TRANSFER") {
-      if (!transaction.isValid(sendersPublicKey)) {
+      if (!transaction.isValid()) {
         throw new Error("Invalid transaction signature");
       }
     }
@@ -185,14 +216,14 @@ class BlockChain {
 
     if (availableBalance < totalCost) {
       throw new Error(
-        `Insufficient balance. Current: ${currentBalance}, Pending: ${pendingAmount}, Available: ${availableBalance}, Required: ${totalCost}`
+        `Insufficient balance. Current: ${currentBalance}, Pending: ${pendingAmount}, Available: ${availableBalance}, Required: ${totalCost}`,
       );
     }
 
     this.mempool.push(transaction);
     console.log(
       "Transaction added to mempool. mempool size:",
-      this.mempool.length
+      this.mempool.length,
     );
     return true;
   }
@@ -203,7 +234,7 @@ class BlockChain {
       preBlock.index + 1,
       data,
       preBlock.hash,
-      minerAddress
+      minerAddress,
     );
 
     // add transactions from mempool
@@ -221,7 +252,7 @@ class BlockChain {
     const displayAddress =
       minerAddress === "SYSTEM" ? "SYSTEM" : shortenAddress(minerAddress);
     console.log(
-      `Block #${newBlock.index} mined successfully by ${displayAddress}`
+      `Block #${newBlock.index} mined successfully by ${displayAddress}`,
     );
     return newBlock;
   }

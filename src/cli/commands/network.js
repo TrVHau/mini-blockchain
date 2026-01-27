@@ -1,23 +1,20 @@
-// Network Commands: open, connect, peers, status, close-server, disconnect
-const Validator = require("../../util/Validator.js");
+// Network Commands
+const { UI, COLORS, ICONS } = require("../../util/UI.js");
 
 function openCommand(vorpal, p2p) {
   vorpal
-    .command(
-      "open <port>",
-      "Open port to accept incoming connections. Eg: open 2727"
-    )
+    .command("open <port>", "Open P2P server on port")
     .alias("o")
     .action(function (args, callback) {
       try {
-        if (!args.port) {
-          this.log("Please provide a port number.");
+        const port = parseInt(args.port);
+        if (isNaN(port) || port < 1 || port > 65535) {
+          this.log(UI.error("Invalid port number (1-65535)"));
         } else {
-          const port = Validator.validatePort(args.port);
           p2p.startServer(port);
         }
       } catch (err) {
-        this.log(`Error: ${err.message}`);
+        this.log(UI.error(err.message));
       }
       callback();
     });
@@ -25,18 +22,12 @@ function openCommand(vorpal, p2p) {
 
 function connectCommand(vorpal, p2p) {
   vorpal
-    .command(
-      "connect <host> <port>",
-      "Connect to a new peer. Eg: connect localhost 2727"
-    )
+    .command("connect <host> <port>", "Connect to peer")
     .alias("c")
     .action(function (args, callback) {
       if (args.host && args.port) {
-        try {
-          p2p.connectToPeer(args.host, args.port);
-        } catch (err) {
-          this.log("Error: " + err);
-        }
+        this.log(UI.info(`Connecting to ${args.host}:${args.port}...`));
+        p2p.connectToPeer(args.host, parseInt(args.port));
       }
       callback();
     });
@@ -44,18 +35,21 @@ function connectCommand(vorpal, p2p) {
 
 function peersCommand(vorpal, p2p) {
   vorpal
-    .command("peers", "Get the list of connected peers.")
+    .command("peers", "List connected peers")
     .alias("p")
     .action(function (args, callback) {
       const peers = p2p.getPeers();
       if (peers.length > 0) {
-        this.log(`\nConnected Peers (${peers.length}):\n`);
-        peers.forEach((peer, i) => {
-          this.log(`${i + 1}. ${peer.address} [${peer.state}]`);
-        });
-        this.log("");
+        const content = peers
+          .map((peer, i) => {
+            const color =
+              peer.state === "connected" ? COLORS.green : COLORS.red;
+            return `  ${i + 1}. ${peer.address} ${color}[${peer.state}]${COLORS.reset}`;
+          })
+          .join("\n");
+        this.log("\n" + UI.box(content, `Peers (${peers.length})`));
       } else {
-        this.log("No peers connected.");
+        this.log(UI.warning("No peers connected"));
       }
       callback();
     });
@@ -63,86 +57,62 @@ function peersCommand(vorpal, p2p) {
 
 function statusCommand(vorpal, blockchain, p2p) {
   vorpal
-    .command("status", "Show node status and statistics.")
+    .command("status", "Show node status")
     .alias("s")
     .action(function (args, callback) {
-      try {
-        const chain = blockchain.get();
-        let serverPort = "Not opened";
+      const chain = blockchain.get();
+      const serverPort = p2p.server ? p2p.server.address()?.port : null;
+      const syncStatus = p2p.getSyncStatus();
 
-        if (p2p.server) {
-          try {
-            serverPort = p2p.server.address().port;
-          } catch (err) {
-            serverPort = "Error";
-          }
-        }
+      const content = [
+        UI.keyValue(
+          "Server",
+          serverPort
+            ? `${COLORS.green}:${serverPort}${COLORS.reset}`
+            : `${COLORS.red}Offline${COLORS.reset}`,
+        ),
+        UI.keyValue(
+          "Peers",
+          `${COLORS.yellow}${p2p.peers.length}${COLORS.reset}`,
+        ),
+        UI.keyValue(
+          "Syncing",
+          syncStatus.isSyncing
+            ? `${COLORS.yellow}Yes${COLORS.reset}`
+            : `${COLORS.green}No${COLORS.reset}`,
+        ),
+        UI.divider(),
+        UI.keyValue("Blocks", `${COLORS.cyan}${chain.length}${COLORS.reset}`),
+        UI.keyValue(
+          "Difficulty",
+          `${COLORS.magenta}${blockchain.difficulty}${COLORS.reset}`,
+        ),
+        UI.keyValue(
+          "Mempool",
+          `${COLORS.yellow}${blockchain.mempool.length}${COLORS.reset} tx`,
+        ),
+        UI.keyValue(
+          "Valid",
+          blockchain.isChainValid()
+            ? `${COLORS.green}Yes${COLORS.reset}`
+            : `${COLORS.red}No${COLORS.reset}`,
+        ),
+      ].join("\n");
 
-        this.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        this.log("         NODE STATUS");
-        this.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        this.log(`Server Port     : ${serverPort}`);
-        this.log(`Connected Peers : ${p2p.peers.length}`);
-        this.log(`Blockchain Size : ${chain.length} blocks`);
-        this.log(`Latest Block    : #${chain[chain.length - 1].index}`);
-        this.log(`Mining Difficulty: ${blockchain.difficulty}`);
-        this.log(`Mempool Size    : ${blockchain.mempool.length} transactions`);
-        this.log(
-          `Chain Valid     : ${blockchain.isChainValid() ? "Yes" : "No"}`
-        );
-        this.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-      } catch (err) {
-        this.log(`Error getting status: ${err.message}`);
-      }
+      this.log("\n" + UI.box(content, "Status"));
       callback();
     });
 }
 
-function closeServerCommand(vorpal, p2p) {
+function syncCommand(vorpal, p2p) {
   vorpal
-    .command("close-server", "Close the P2P server.")
-    .alias("cs")
+    .command("sync", "Sync blockchain with peers")
     .action(function (args, callback) {
-      try {
-        p2p.closeServer();
-      } catch (err) {
-        this.log(`Error closing server: ${err.message}`);
-      }
-      callback();
-    });
-}
-
-function disconnectCommand(vorpal, p2p) {
-  vorpal
-    .command(
-      "disconnect <index>",
-      "Disconnect a specific peer by index. Use 'peers' to see the list."
-    )
-    .alias("dc")
-    .action(function (args, callback) {
-      try {
-        const index = parseInt(args.index) - 1; // -1 vì hiển thị từ 1 nhưng mảng từ 0
-        if (isNaN(index) || index < 0) {
-          this.log("Invalid index! Use 'peers' to see the list.");
-        } else {
-          p2p.disconnectPeer(index);
-        }
-      } catch (err) {
-        this.log(`Error disconnecting peer: ${err.message}`);
-      }
-      callback();
-    });
-}
-
-function disconnectAllCommand(vorpal, p2p) {
-  vorpal
-    .command("disconnect-all", "Disconnect all connected peers.")
-    .alias("dca")
-    .action(function (args, callback) {
-      try {
-        p2p.disconnectAllPeers();
-      } catch (err) {
-        this.log(`Error disconnecting all peers: ${err.message}`);
+      const status = p2p.getSyncStatus();
+      if (status.isSyncing) {
+        this.log(UI.warning("Already syncing..."));
+      } else if (p2p.triggerSync()) {
+        this.log(UI.success("Sync request sent"));
       }
       callback();
     });
@@ -153,7 +123,5 @@ module.exports = {
   connectCommand,
   peersCommand,
   statusCommand,
-  closeServerCommand,
-  disconnectCommand,
-  disconnectAllCommand,
+  syncCommand,
 };

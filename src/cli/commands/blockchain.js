@@ -1,47 +1,32 @@
-// Blockchain Commands: blockchain, block, latest, validate
+// Blockchain Commands
+const { UI, COLORS, ICONS } = require("../../util/UI.js");
 
 function blockchainCommand(vorpal, blockchain) {
   vorpal
-    .command("blockchain", "See the current state of the blockchain.")
+    .command("blockchain", "View entire blockchain")
     .alias("bc")
     .action(function (args, callback) {
       const chain = blockchain.get();
-      this.log(`\nBlockchain (${chain.length} blocks):\n`);
-      chain.forEach((block) => {
-        this.log(block.toString());
-      });
+      this.log(
+        `\n${COLORS.cyan}${ICONS.chain} Blockchain (${chain.length} blocks)${COLORS.reset}\n`,
+      );
+      chain.forEach((block) => this.log(block.toString()));
       callback();
     });
 }
 
 function blockCommand(vorpal, blockchain) {
   vorpal
-    .command("block <index>", "View details of a specific block. Eg: block 0")
+    .command("block <index>", "View specific block")
     .alias("b")
     .action(function (args, callback) {
-      try {
-        const index = parseInt(args.index);
+      const index = parseInt(args.index);
+      const chain = blockchain.get();
 
-        if (isNaN(index)) {
-          this.log("Invalid index! Please provide a number.");
-          callback();
-          return;
-        }
-
-        const chain = blockchain.get();
-
-        if (index >= 0 && index < chain.length) {
-          const block = chain[index];
-          this.log("\n" + block.toString());
-        } else {
-          this.log(
-            `Block #${index} not found. Chain has ${chain.length} blocks (0-${
-              chain.length - 1
-            })`
-          );
-        }
-      } catch (err) {
-        this.log(`Error getting block: ${err.message}`);
+      if (isNaN(index) || index < 0 || index >= chain.length) {
+        this.log(UI.error(`Block not found. Valid: 0-${chain.length - 1}`));
+      } else {
+        this.log("\n" + chain[index].toString());
       }
       callback();
     });
@@ -49,30 +34,23 @@ function blockCommand(vorpal, blockchain) {
 
 function latestCommand(vorpal, blockchain) {
   vorpal
-    .command("latest", "View the latest block in the chain.")
+    .command("latest", "View latest block")
     .alias("l")
     .action(function (args, callback) {
-      const latestBlock = blockchain.getLatestBlock();
-      this.log("\n" + latestBlock.toString());
+      this.log("\n" + blockchain.getLatestBlock().toString());
       callback();
     });
 }
 
 function validateCommand(vorpal, blockchain) {
   vorpal
-    .command("validate", "Validate the integrity of the blockchain.")
+    .command("validate", "Validate blockchain")
     .alias("v")
     .action(function (args, callback) {
-      try {
-        this.log("Validating blockchain...");
-        const isValid = blockchain.isChainValid();
-        if (isValid) {
-          this.log("Blockchain is valid!");
-        } else {
-          this.log("Blockchain is NOT valid! Chain has been tampered with.");
-        }
-      } catch (err) {
-        this.log(`Error validating blockchain: ${err.message}`);
+      if (blockchain.isChainValid()) {
+        this.log(UI.success("Blockchain is valid"));
+      } else {
+        this.log(UI.error("Blockchain is invalid!"));
       }
       callback();
     });

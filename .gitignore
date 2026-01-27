@@ -3,3 +3,6 @@
 
 # local database files
 /data
+
+# git files
+.github

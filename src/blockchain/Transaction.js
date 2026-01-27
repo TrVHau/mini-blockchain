@@ -6,14 +6,15 @@ class Transaction {
     from,
     to,
     amount,
-    fee = BLOCKCHAIN_CONSTANTS.DEFAULT_TRANSACTION_FEE
+    fee = BLOCKCHAIN_CONSTANTS.DEFAULT_TRANSACTION_FEE,
   ) {
-    this.from = from;
-    this.to = to;
+    this.from = from; // Hash address
+    this.to = to; // Hash address
     this.amount = amount;
     this.fee = fee;
     this.timestamp = Date.now();
     this.type = "TRANSFER";
+    this.senderPublicKey = null; // PEM key for signature verification
   }
 
   getTotalCost() {
@@ -24,26 +25,27 @@ class Transaction {
     return crypto
       .createHash("sha256")
       .update(
-        `${this.from}|${this.to}|${this.amount}|${this.fee}|${this.timestamp}`
+        `${this.from}|${this.to}|${this.amount}|${this.fee}|${this.timestamp}`,
       )
       .digest("hex");
   }
 
-  sign(privateKey) {
+  sign(privateKey, publicKeyPEM) {
+    this.senderPublicKey = publicKeyPEM; // Lưu PEM key để verify
     const sign = crypto.createSign("SHA256");
     sign.update(this.calculateHash());
     sign.end();
     this.signature = sign.sign(privateKey, "hex");
   }
 
-  isValid(publicKey) {
-    if (!this.signature) {
+  isValid() {
+    if (!this.signature || !this.senderPublicKey) {
       return false;
     }
     const verify = crypto.createVerify("SHA256");
     verify.update(this.calculateHash());
     verify.end();
-    return verify.verify(publicKey, this.signature, "hex");
+    return verify.verify(this.senderPublicKey, this.signature, "hex");
   }
 }
 

@@ -23,7 +23,7 @@ class Block {
     return crypto
       .createHash("sha256")
       .update(
-        `${this.index}|${this.previousHash}|${this.timestamp}|${this.nonce}|${this.data}|${txData}`
+        `${this.index}|${this.previousHash}|${this.timestamp}|${this.nonce}|${this.data}|${txData}`,
       )
       .digest("hex");
   }
@@ -32,7 +32,7 @@ class Block {
     const genesisBlock = new Block(
       0,
       BLOCKCHAIN_CONSTANTS.GENESIS_DATA,
-      BLOCKCHAIN_CONSTANTS.GENESIS_PREVIOUS_HASH
+      BLOCKCHAIN_CONSTANTS.GENESIS_PREVIOUS_HASH,
     );
     // Set fixed timestamp for genesis block to ensure same hash across all nodes
     genesisBlock.timestamp = BLOCKCHAIN_CONSTANTS.GENESIS_TIMESTAMP;
@@ -43,7 +43,7 @@ class Block {
   mineBlock(difficulty, minerAddress) {
     this.totalFees = this.transactions.reduce(
       (sum, tx) => sum + (tx.fee || 0),
-      0
+      0,
     );
 
     this.coinbaseTx = new CoinbaseTransaction(minerAddress, this.index);
@@ -61,6 +61,16 @@ class Block {
   }
 
   toString() {
+    const C = {
+      reset: "\x1b[0m",
+      bright: "\x1b[1m",
+      dim: "\x1b[2m",
+      cyan: "\x1b[36m",
+      yellow: "\x1b[33m",
+      green: "\x1b[32m",
+      magenta: "\x1b[35m",
+    };
+
     const minerAddr = this.minerAddress
       ? shortenAddress(this.minerAddress)
       : "None";
@@ -68,42 +78,47 @@ class Block {
     const reward = this.coinbaseTx ? this.coinbaseTx.amount : 0;
 
     // Format transactions for display with shortened addresses
-    let txDisplay = this.data;
-
-    // Nếu có transactions trong block, hiển thị chúng
+    let txDisplay = "";
     if (this.transactions && this.transactions.length > 0) {
-      txDisplay = this.transactions.map((tx) => ({
-        from: tx.from ? shortenAddress(tx.from) : tx.from,
-        to: tx.to ? shortenAddress(tx.to) : tx.to,
-        amount: tx.amount,
-        fee: tx.fee || 0,
-        type: tx.type,
-      }));
-    } else if (Array.isArray(this.data) && this.data.length > 0) {
-      // Fallback: nếu data là array (legacy)
-      txDisplay = this.data.map((tx) => ({
-        from: tx.from ? shortenAddress(tx.from) : tx.from,
-        to: tx.to ? shortenAddress(tx.to) : tx.to,
-        amount: tx.amount,
-        fee: tx.fee || 0,
-        type: tx.type,
-      }));
+      txDisplay = this.transactions
+        .map((tx, i) => {
+          const from = tx.from ? shortenAddress(tx.from) : tx.from;
+          const to = tx.to ? shortenAddress(tx.to) : tx.to;
+          return `  ${i + 1}. ${from} → ${to} (${tx.amount} coins)`;
+        })
+        .join("\n");
+    } else if (
+      this.data &&
+      typeof this.data === "string" &&
+      this.data.length > 0
+    ) {
+      txDisplay = `  ${C.dim}${this.data}${C.reset}`;
+    } else {
+      txDisplay = `  ${C.dim}No transactions${C.reset}`;
     }
 
+    const hashShort =
+      this.hash.substring(0, 20) +
+      "..." +
+      this.hash.substring(this.hash.length - 8);
+
     return `
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Block #${this.index}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Hash          : ${this.hash}
-Previous Hash : ${this.previousHash}
-Timestamp     : ${new Date(this.timestamp).toLocaleString()}
-Nonce         : ${this.nonce}
-Miner Address : ${minerAddr}
-Mining Reward : ${reward} coins
-Transactions  : ${this.transactions.length}
-Total Fees    : ${this.totalFees} coins
-Data          : ${JSON.stringify(txDisplay)}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+${C.cyan}╔══════════════════════════════════════════════════════╗${C.reset}
+${C.cyan}║${C.reset}  ${C.bright}${C.yellow}⬛ Block #${this.index}${C.reset}                                        ${C.cyan}║${C.reset}
+${C.cyan}╠══════════════════════════════════════════════════════╣${C.reset}
+${C.cyan}║${C.reset}  ${C.dim}Hash${C.reset}          : ${hashShort}
+${C.cyan}║${C.reset}  ${C.dim}Previous${C.reset}      : ${this.previousHash.substring(0, 28)}...
+${C.cyan}║${C.reset}  ${C.dim}Timestamp${C.reset}     : ${new Date(this.timestamp).toLocaleString()}
+${C.cyan}║${C.reset}  ${C.dim}Nonce${C.reset}         : ${C.magenta}${this.nonce}${C.reset}
+${C.cyan}╠──────────────────────────────────────────────────────╣${C.reset}
+${C.cyan}║${C.reset}  ${C.dim}Miner${C.reset}         : ${C.cyan}${minerAddr}${C.reset}
+${C.cyan}║${C.reset}  ${C.dim}Reward${C.reset}        : ${C.green}+${reward}${C.reset} coins
+${C.cyan}║${C.reset}  ${C.dim}Transactions${C.reset}  : ${C.yellow}${this.transactions.length}${C.reset}
+${C.cyan}║${C.reset}  ${C.dim}Total Fees${C.reset}    : ${C.green}+${this.totalFees}${C.reset} coins
+${C.cyan}╠──────────────────────────────────────────────────────╣${C.reset}
+${C.cyan}║${C.reset}  ${C.bright}Transactions:${C.reset}
+${txDisplay}
+${C.cyan}╚══════════════════════════════════════════════════════╝${C.reset}`;
   }
 }
 exports.Block = Block;

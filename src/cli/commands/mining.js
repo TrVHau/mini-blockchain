@@ -1,96 +1,83 @@
-// Mining Commands: mine, mine-mempool, difficulty
+// Mining Commands
+const { UI, COLORS, ICONS } = require("../../util/UI.js");
 const { shortenAddress } = require("../../util/AddressHelper.js");
-const BLOCKCHAIN_CONSTANTS = require("../../config/constants.js");
-const Validator = require("../../util/Validator.js");
 
 function mineCommand(vorpal, walletManager, blockchain, p2p) {
   vorpal
-    .command("mine <wallet> [data]", "Mine a new block. Eg: mine hello!")
+    .command(
+      "mine <wallet>",
+      "Mine block. <wallet> can be wallet name or address",
+    )
     .alias("m")
     .action(function (args, callback) {
       try {
-        // lấy miner address
-        const minerAddress = walletManager.getPublicKey(args.wallet);
-        const data = args.data || "";
+        let minerAddress;
+        let displayName = args.wallet;
 
-        // đào block mới
-        this.log(`\nMining new block for wallet: ${args.wallet}...`);
-        const block = blockchain.mineBlock(minerAddress, data);
+        // 1. Thử tìm trong local wallets
+        try {
+          minerAddress = walletManager.getPublicKey(args.wallet);
+        } catch {
+          // 2. Nếu là địa chỉ (64 hex chars) -> dùng trực tiếp
+          if (args.wallet.length === 64 && /^[a-f0-9]+$/i.test(args.wallet)) {
+            minerAddress = args.wallet;
+            displayName = shortenAddress(args.wallet);
+          } else {
+            // 3. Tìm prefix trong blockchain
+            const allBalances = blockchain.getAllBalances();
+            const matches = Object.keys(allBalances).filter((addr) => {
+              if (typeof addr !== "string" || addr.length !== 64) return false;
+              return addr.toLowerCase().startsWith(args.wallet.toLowerCase());
+            });
 
-        // broadcast block mới đến các peer
-        p2p.broadcastNewBlock(block);
-        const reward = blockchain.getMiningReward();
+            if (matches.length === 1) {
+              minerAddress = matches[0];
+              displayName = shortenAddress(minerAddress);
+            } else if (matches.length > 1) {
+              throw new Error(`Multiple addresses match "${args.wallet}"`);
+            } else {
+              throw new Error(`Wallet/address not found: "${args.wallet}"`);
+            }
+          }
+        }
 
-        this.log(`\nBlock mined successfully!`);
-        this.log(`Block #${block.index}`);
-        this.log(`Hash: ${block.hash}`);
-        this.log(`Miner: ${shortenAddress(minerAddress)}`);
-        this.log(`Reward: ${reward} coins`);
-        this.log(`Transactions: ${block.transactions.length}`);
-        this.log(`Total Fees: ${block.totalFees} coins\n`);
-      } catch (err) {
-        this.log(`Error mining block: ${err.message}`);
-      }
-      callback();
-    });
-}
+        this.log(UI.info(`Mining block for ${displayName}...`));
 
-function mineMempoolCommand(vorpal, walletManager, blockchain, p2p) {
-  vorpal
-    .command(
-      "mine-mempool <wallet>",
-      "Mine all pending transactions in mempool. Eg: mine-mempool Alice"
-    )
-    .alias("mm")
-    .action(function (args, callback) {
-      try {
-        if (blockchain.mempool.length === 0) {
-          this.log("Mempool is empty, nothing to mine.");
+        const newBlock = blockchain.mineBlock(minerAddress);
+
+        if (newBlock) {
+          const content = [
+            UI.keyValue(
+              "Block",
+              `#${COLORS.cyan}${newBlock.index}${COLORS.reset}`,
+            ),
+            UI.keyValue(
+              "Transactions",
+              `${COLORS.yellow}${newBlock.transactions.length}${COLORS.reset}`,
+            ),
+            UI.keyValue(
+              "Nonce",
+              `${COLORS.dim}${newBlock.nonce}${COLORS.reset}`,
+            ),
+            UI.keyValue(
+              "Hash",
+              `${COLORS.dim}${newBlock.hash.slice(0, 16)}...${COLORS.reset}`,
+            ),
+          ].join("\n");
+
+          this.log("\n" + UI.box(content, `${ICONS.mining} Block Mined`, 45));
+
+          const reward = newBlock.coinbaseTx ? newBlock.coinbaseTx.amount : 0;
+          this.log(UI.success(`Reward: ${reward} coins`));
+
+          // Broadcast block
+          p2p.broadcastNewBlock(newBlock);
+          this.log(UI.info(`Broadcasted to ${p2p.peers.length} peer(s)\n`));
         } else {
-          // Lấy miner address
-          const minerAddress = walletManager.getPublicKey(args.wallet);
-
-          this.log(
-            `Mining ${blockchain.mempool.length} transactions for wallet: ${args.wallet}...`
-          );
-          const block = blockchain.mineMempool(minerAddress);
-
-          // Broadcast block mới đến các peer
-          p2p.broadcastNewBlock(block);
-
-          const reward = blockchain.getMiningReward();
-          this.log(`\nBlock mined and broadcasted successfully!`);
-          this.log(`Block #${block.index}`);
-          this.log(`Miner: ${args.wallet}`);
-          this.log(`Reward: ${reward} coins`);
-          this.log(`Transactions: ${block.transactions.length}`);
-          this.log(`Total Fees: ${block.totalFees} coins\n`);
+          this.log(UI.error("Mining failed"));
         }
       } catch (err) {
-        this.log(`Error mining mempool: ${err.message}`);
-      }
-      callback();
-    });
-}
-
-function difficultyCommand(vorpal, blockchain) {
-  vorpal
-    .command(
-      "difficulty <level>",
-      "Set mining difficulty (1-6). Eg: difficulty 3"
-    )
-    .action(function (args, callback) {
-      try {
-        const level = Validator.validateDifficulty(
-          args.level,
-          BLOCKCHAIN_CONSTANTS.MIN_DIFFICULTY,
-          BLOCKCHAIN_CONSTANTS.MAX_DIFFICULTY
-        );
-        blockchain.difficulty = level;
-        this.log(` Mining difficulty set to ${level}`);
-        this.log(`   Blocks must start with ${"0".repeat(level)}...`);
-      } catch (err) {
-        this.log(` Error: ${err.message}`);
+        this.log(UI.error(`Error: ${err.message}`));
       }
       callback();
     });
@@ -98,6 +85,4 @@ function difficultyCommand(vorpal, blockchain) {
 
 module.exports = {
   mineCommand,
-  mineMempoolCommand,
-  difficultyCommand,
 };

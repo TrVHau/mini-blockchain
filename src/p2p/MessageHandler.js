@@ -70,16 +70,14 @@ class MessageHandler {
           txData.from,
           txData.to,
           txData.amount,
-          txData.fee
+          txData.fee,
         );
         transaction.signature = txData.signature;
         transaction.timestamp = txData.timestamp;
+        transaction.senderPublicKey = txData.senderPublicKey; // Quan trọng: copy PEM key
       }
 
-      // Lấy public key từ address (from)
-      const senderPublicKey = txData.from;
-
-      this.blockchain.addTransaction(transaction, senderPublicKey);
+      this.blockchain.addTransaction(transaction);
       console.log("Transaction added to mempool from peer");
 
       //  RELAY: Forward transaction to other peers (except sender)
