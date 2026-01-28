@@ -1,5 +1,6 @@
 const { CoinbaseTransaction } = require("./CoinbaseTransaction.js");
 const { shortenAddress } = require("../util/AddressHelper.js");
+const MerkleTree = require("../util/MerkleTree.js");
 const crypto = require("crypto");
 const BLOCKCHAIN_CONSTANTS = require("../config/constants.js");
 
@@ -10,20 +11,50 @@ class Block {
     this.previousHash = previousHash;
     this.timestamp = Date.now();
     this.nonce = 0;
-    this.hash = this.calculateHash();
 
     this.minerAddress = minerAddress;
-    this.coinbaseTx = null; //set sau
+    this.coinbaseTx = null;
     this.transactions = [];
     this.totalFees = 0;
+    this.merkleRoot = null; // Merkle root của transactions
+
+    this.hash = this.calculateHash();
   }
 
+  /**
+   * Tính Merkle Root từ transactions
+   */
+  calculateMerkleRoot() {
+    if (!this.transactions || this.transactions.length === 0) {
+      return MerkleTree.hash("empty");
+    }
+
+    // Lấy txid hoặc hash của mỗi transaction
+    const txHashes = this.transactions.map((tx) => {
+      if (tx.txid) return tx.txid;
+      if (tx.calculateHash) return tx.calculateHash();
+      return MerkleTree.hash(JSON.stringify(tx));
+    });
+
+    // Thêm coinbase tx nếu có
+    if (this.coinbaseTx) {
+      const coinbaseHash = MerkleTree.hash(
+        `${this.coinbaseTx.to}|${this.coinbaseTx.amount}|${this.index}`,
+      );
+      txHashes.unshift(coinbaseHash);
+    }
+
+    return MerkleTree.calculateRoot(txHashes);
+  }
+
+  /**
+   * Tính hash của block header
+   */
   calculateHash() {
-    const txData = JSON.stringify(this.transactions);
     return crypto
       .createHash("sha256")
       .update(
-        `${this.index}|${this.previousHash}|${this.timestamp}|${this.nonce}|${this.data}|${txData}`,
+        `${this.index}|${this.previousHash}|${this.timestamp}|${this.nonce}|${this.merkleRoot || ""}`,
       )
       .digest("hex");
   }
@@ -34,12 +65,15 @@ class Block {
       BLOCKCHAIN_CONSTANTS.GENESIS_DATA,
       BLOCKCHAIN_CONSTANTS.GENESIS_PREVIOUS_HASH,
     );
-    // Set fixed timestamp for genesis block to ensure same hash across all nodes
     genesisBlock.timestamp = BLOCKCHAIN_CONSTANTS.GENESIS_TIMESTAMP;
+    genesisBlock.merkleRoot = genesisBlock.calculateMerkleRoot();
     genesisBlock.hash = genesisBlock.calculateHash();
     return genesisBlock;
   }
 
+  /**
+   * Mine block với Proof of Work
+   */
   mineBlock(difficulty, minerAddress) {
     this.totalFees = this.transactions.reduce(
       (sum, tx) => sum + (tx.fee || 0),
@@ -47,13 +81,40 @@ class Block {
     );
 
     this.coinbaseTx = new CoinbaseTransaction(minerAddress, this.index);
+
+    // Tính merkle root sau khi có tất cả transactions
+    this.merkleRoot = this.calculateMerkleRoot();
+
     const target = "0".repeat(difficulty);
 
-    // mining loop
+    // Mining loop
     while (!this.hash.startsWith(target)) {
       this.nonce++;
       this.hash = this.calculateHash();
     }
+  }
+
+  /**
+   * Verify một transaction có trong block không (dùng Merkle Proof)
+   */
+  verifyTransaction(txHash) {
+    const txHashes = this.transactions.map(
+      (tx) =>
+        tx.txid || tx.calculateHash?.() || MerkleTree.hash(JSON.stringify(tx)),
+    );
+
+    const index = txHashes.indexOf(txHash);
+    if (index === -1) return false;
+
+    const proof = MerkleTree.getProof(txHashes, index);
+    return MerkleTree.verifyProof(txHash, proof, this.merkleRoot);
+  }
+
+  /**
+   * Tính size của block (bytes)
+   */
+  getSize() {
+    return JSON.stringify(this).length;
   }
 
   getTotalFees() {
@@ -104,10 +165,11 @@ class Block {
 
     return `
 ${C.cyan}╔══════════════════════════════════════════════════════╗${C.reset}
-${C.cyan}║${C.reset}  ${C.bright}${C.yellow}⬛ Block #${this.index}${C.reset}                                        ${C.cyan}║${C.reset}
+${C.cyan}║${C.reset}  ${C.bright}${C.yellow}⬛ Block #${this.index}${C.reset}                                         ${C.cyan}║${C.reset}
 ${C.cyan}╠══════════════════════════════════════════════════════╣${C.reset}
 ${C.cyan}║${C.reset}  ${C.dim}Hash${C.reset}          : ${hashShort}
 ${C.cyan}║${C.reset}  ${C.dim}Previous${C.reset}      : ${this.previousHash.substring(0, 28)}...
+${C.cyan}║${C.reset}  ${C.dim}MerkleRoot${C.reset}    : ${(this.merkleRoot || "").substring(0, 28)}...
 ${C.cyan}║${C.reset}  ${C.dim}Timestamp${C.reset}     : ${new Date(this.timestamp).toLocaleString()}
 ${C.cyan}║${C.reset}  ${C.dim}Nonce${C.reset}         : ${C.magenta}${this.nonce}${C.reset}
 ${C.cyan}╠──────────────────────────────────────────────────────╣${C.reset}

@@ -15,12 +15,17 @@ class Transaction {
     this.timestamp = Date.now();
     this.type = "TRANSFER";
     this.senderPublicKey = null; // PEM key for signature verification
+    this.signature = null;
+    this.txid = null; // Transaction ID - set after signing
   }
 
   getTotalCost() {
     return this.amount + this.fee;
   }
 
+  /**
+   * Tính hash của transaction data (không bao gồm signature)
+   */
   calculateHash() {
     return crypto
       .createHash("sha256")
@@ -30,14 +35,29 @@ class Transaction {
       .digest("hex");
   }
 
+  /**
+   * Tính Transaction ID (hash bao gồm cả signature)
+   */
+  calculateTxid() {
+    const data = `${this.from}|${this.to}|${this.amount}|${this.fee}|${this.timestamp}|${this.signature}`;
+    return crypto.createHash("sha256").update(data).digest("hex");
+  }
+
+  /**
+   * Ký transaction và tạo txid
+   */
   sign(privateKey, publicKeyPEM) {
-    this.senderPublicKey = publicKeyPEM; // Lưu PEM key để verify
+    this.senderPublicKey = publicKeyPEM;
     const sign = crypto.createSign("SHA256");
     sign.update(this.calculateHash());
     sign.end();
     this.signature = sign.sign(privateKey, "hex");
+    this.txid = this.calculateTxid(); // Tạo txid sau khi ký
   }
 
+  /**
+   * Verify signature
+   */
   isValid() {
     if (!this.signature || !this.senderPublicKey) {
       return false;
@@ -46,6 +66,13 @@ class Transaction {
     verify.update(this.calculateHash());
     verify.end();
     return verify.verify(this.senderPublicKey, this.signature, "hex");
+  }
+
+  /**
+   * Serialize transaction để tính size
+   */
+  getSize() {
+    return JSON.stringify(this).length;
   }
 }
 

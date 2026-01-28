@@ -101,47 +101,6 @@ function sendCommand(vorpal, walletManager, blockchain, p2p) {
     });
 }
 
-function mempoolCommand(vorpal, blockchain) {
-  vorpal
-    .command("mempool", "View pending transactions in mempool.")
-    .alias("mp")
-    .action(function (args, callback) {
-      if (blockchain.mempool.length === 0) {
-        this.log(UI.info("Mempool is empty."));
-      } else {
-        const content = blockchain.mempool
-          .map((tx, i) => {
-            return [
-              `${COLORS.cyan}${i + 1}.${COLORS.reset} ${ICONS.send} ${tx.type}`,
-              `   From   : ${shortenAddress(tx.from)}`,
-              `   To     : ${shortenAddress(tx.to)}`,
-              `   Amount : ${COLORS.yellow}${tx.amount}${COLORS.reset} coins`,
-              `   Fee    : ${COLORS.dim}${tx.fee}${COLORS.reset} coins`,
-            ].join("\n");
-          })
-          .join("\n" + UI.divider("─", 45) + "\n");
-
-        const totalFees = blockchain.mempool.reduce(
-          (sum, tx) => sum + (tx.fee || 0),
-          0,
-        );
-
-        const footer = `\n${ICONS.coin} Total Fees Available: ${COLORS.green}${totalFees}${COLORS.reset} coins`;
-
-        this.log(
-          "\n" +
-            UI.box(
-              content + footer,
-              `${ICONS.pending} Mempool (${blockchain.mempool.length} tx)`,
-              50,
-            ),
-        );
-      }
-      callback();
-    });
-}
-
 module.exports = {
   sendCommand,
-  mempoolCommand,
 };

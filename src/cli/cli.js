@@ -75,7 +75,6 @@ function cli(options = {}) {
 
   // Transaction Commands
   transactionCommands.sendCommand(vorpal, walletManager, blockchain, p2p);
-  transactionCommands.mempoolCommand(vorpal, blockchain);
 
   // Mining Commands
   miningCommands.mineCommand(vorpal, walletManager, blockchain, p2p);
@@ -85,6 +84,10 @@ function cli(options = {}) {
   blockchainCommands.blockCommand(vorpal, blockchain);
   blockchainCommands.latestCommand(vorpal, blockchain);
   blockchainCommands.validateCommand(vorpal, blockchain);
+  blockchainCommands.statsCommand(vorpal, blockchain);
+  blockchainCommands.txCommand(vorpal, blockchain);
+  blockchainCommands.mempoolCommand(vorpal, blockchain);
+  blockchainCommands.feeCommand(vorpal, blockchain);
 
   // Auto-start server
   if (options.autoStart && options.port) {
