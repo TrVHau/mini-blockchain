@@ -1,188 +1,188 @@
-# 🔗 Mini Blockchain
+# ⛓ Mini Blockchain
 
-Blockchain peer-to-peer đơn giản để học tập và thử nghiệm. Mỗi terminal là một node trong mạng blockchain phân tán.
+Một blockchain đầy đủ tính năng để học tập với:
 
-## ⚡ Cài đặt
+- **P2P Networking** - Kết nối nhiều nodes
+- **Proof-of-Work Mining** - Đào block với difficulty adjustment
+- **Digital Signatures** - Xác thực giao dịch bằng ECDSA
+- **Merkle Tree** - Verify transactions hiệu quả
+- **Double Spend Protection** - Chống chi tiêu kép
+- **Halving** - Giảm phần thưởng theo thời gian
+
+## 🚀 Cài đặt
 
 ```bash
 npm install
+```
+
+## 🎮 Chạy
+
+```bash
+# Chế độ tương tác
 npm start
+
+# Node với cấu hình cụ thể
+node src/index.js -n node1 -p 3000 -a
+
+# Xem help
+node src/index.js -h
 ```
 
-## 🎯 Tính năng
+### Options
 
-### Network
+| Option                 | Mô tả                               |
+| ---------------------- | ----------------------------------- |
+| `-n, --node <id>`      | Node ID (mỗi node có storage riêng) |
+| `-p, --port <port>`    | Port cho P2P server                 |
+| `-c, --connect <addr>` | Kết nối đến peer (host:port)        |
+| `-a, --auto`           | Tự động start server                |
+| `-h, --help`           | Hiển thị help                       |
 
-- **P2P networking** - Kết nối giữa các nodes
-- **Block synchronization** - Đồng bộ blockchain tự động
-- **Transaction broadcasting** - Broadcast giao dịch đến toàn mạng
+## 📖 Lệnh CLI
 
-### Wallet & Transactions
+### 🌐 Network
 
-- **Wallet management** - Tạo và quản lý ví
-- **Digital signatures** - Ký giao dịch bằng private key
-- **Transaction validation** - Kiểm tra chữ ký, balance, và pending transactions
+| Lệnh                    | Alias | Mô tả                        |
+| ----------------------- | ----- | ---------------------------- |
+| `open <port>`           | `o`   | Mở P2P server                |
+| `connect <host> <port>` | `c`   | Kết nối đến peer             |
+| `peers`                 | `p`   | Danh sách peers đang kết nối |
+| `status`                | `s`   | Trạng thái node              |
+| `sync`                  |       | Đồng bộ blockchain từ peers  |
 
-### Mining
+### 💰 Wallet
 
-- **Proof of Work** - Đào block với độ khó tùy chỉnh (1-6)
-- **Mining rewards** - Phần thưởng cho miner (50 coins + fees)
-- **Mempool** - Transaction pool trước khi mine vào block
+| Lệnh                   | Alias  | Mô tả                             |
+| ---------------------- | ------ | --------------------------------- |
+| `wallet-create <name>` | `wc`   | Tạo wallet mới                    |
+| `wallets`              | `wl`   | Danh sách wallets của bạn         |
+| `wallets all`          |        | Xem tất cả địa chỉ có số dư       |
+| `balance <name>`       | `bal`  | Xem số dư wallet                  |
+| `address <name>`       | `addr` | Hiển thị địa chỉ đầy đủ (để copy) |
+| `history <name>`       | `h`    | Xem lịch sử giao dịch             |
+| `export <name>`        |        | Export private key (backup)       |
+| `import <name>`        |        | Import wallet từ private key      |
 
-### Data
+### 📤 Transaction
 
-- **Import/Export** - Lưu và load blockchain từ file JSON
-- **Transaction history** - Xem lịch sử giao dịch của wallet
-- **Chain validation** - Kiểm tra tính toàn vẹn của blockchain
+| Lệnh                              | Mô tả                                                              |
+| --------------------------------- | ------------------------------------------------------------------ |
+| `send <from> <to> <amount> [fee]` | Gửi coins. `<to>` có thể là tên wallet, địa chỉ đầy đủ hoặc prefix |
 
-## 📚 Lệnh CLI
+### ⛏ Mining
 
-### Network Commands
+| Lệnh                      | Alias | Mô tả                                              |
+| ------------------------- | ----- | -------------------------------------------------- |
+| `mine <wallet>`           | `m`   | Đào block mới. Có thể dùng tên wallet hoặc địa chỉ |
+| `automine <wallet> [sec]` | `am`  | Tự động đào khi có tx (mặc định 10s)               |
+| `stopautomine`            | `sam` | Dừng auto-mine                                     |
+
+### ⛓ Blockchain
+
+| Lệnh            | Alias | Mô tả                           |
+| --------------- | ----- | ------------------------------- |
+| `blockchain`    | `bc`  | Xem toàn bộ chain               |
+| `block <query>` | `b`   | Xem block theo index hoặc hash  |
+| `latest`        | `l`   | Block mới nhất                  |
+| `validate`      | `v`   | Kiểm tra chain hợp lệ           |
+| `stats`         |       | Thống kê blockchain             |
+| `tx <txid>`     |       | Xem transaction (hỗ trợ prefix) |
+| `mempool`       | `mp`  | Xem pending transactions        |
+| `fee`           |       | Ước tính phí giao dịch          |
+
+## 🎯 Demo: 2 Nodes
+
+### Terminal 1 (Alice)
 
 ```bash
-open <port>                    # Mở server P2P
-connect <host> <port>          # Kết nối đến peer
-peers                          # Danh sách peers
-status                         # Trạng thái node
-close-server                   # Đóng server
-disconnect <index>             # Ngắt kết nối peer
-disconnect-all                 # Ngắt tất cả peers
+node src/index.js -n alice -p 3000 -a
+
+# Trong CLI:
+wallet-create alice
+mine alice
+mine alice
+address alice    # Copy địa chỉ này
 ```
 
-### Wallet Commands
+### Terminal 2 (Bob)
 
 ```bash
-wallet-create <name>           # Tạo ví mới
-wallets                        # List wallets
-wallets all                    # List tất cả addresses có balance
-balance <name>                 # Kiểm tra số dư
-history <wallet>               # Xem lịch sử giao dịch
+node src/index.js -n bob -p 3001 -a -c localhost:3000
+
+# Trong CLI:
+blockchain       # Tự động sync từ Alice
+wallet-create bob
+address bob      # Copy địa chỉ này
 ```
 
-### Transaction Commands
+### Terminal 1 (Alice gửi coins cho Bob)
 
 ```bash
-send <from> <to> <amount> [fee]  # Gửi coins
-mempool                          # Xem pending transactions
+# Paste địa chỉ Bob vào đây (hoặc dùng prefix)
+send alice <bob-address> 10
+mine alice       # Mine để confirm transaction
 ```
 
-### Mining Commands
+### Terminal 2 (Bob kiểm tra)
 
 ```bash
-mine <wallet> [data]           # Đào block mới
-mine-mempool <wallet>          # Đào tất cả tx trong mempool
-difficulty <level>             # Đặt độ khó (1-6)
+blockchain       # Thấy transaction
+balance bob      # Kiểm tra số dư
 ```
 
-### Blockchain Commands
+## ⚙️ Cấu hình
 
-```bash
-blockchain                     # Xem toàn bộ chain
-block <index>                  # Chi tiết 1 block
-latest                         # Block mới nhất
-validate                       # Kiểm tra chain hợp lệ
-```
+Các constants có thể điều chỉnh trong `src/config/constants.js`:
 
-### Utility Commands
+| Constant                         | Mặc định | Mô tả                              |
+| -------------------------------- | -------- | ---------------------------------- |
+| `DEFAULT_DIFFICULTY`             | 4        | Độ khó mining ban đầu              |
+| `TARGET_BLOCK_TIME`              | 30000ms  | Thời gian mục tiêu mỗi block       |
+| `DIFFICULTY_ADJUSTMENT_INTERVAL` | 10       | Điều chỉnh difficulty mỗi N blocks |
+| `INITIAL_MINING_REWARD`          | 16       | Phần thưởng block ban đầu          |
+| `HALVING_INTERVAL`               | 50       | Halving mỗi N blocks               |
+| `MAX_TRANSACTIONS_PER_BLOCK`     | 100      | Giới hạn TX mỗi block              |
+| `CONFIRMATIONS_REQUIRED`         | 6        | Số confirmations để coi là final   |
 
-```bash
-export <filename>              # Export chain ra file
-import <filename>              # Import chain từ file
-clear                          # Xóa màn hình
-help                          # Xem tất cả lệnh
-```
-
-## 🚀 Ví dụ: Chạy mạng 3 nodes
-
-### Node 1 (Alice)
-
-```bash
-npm start
-BLOCKCHAIN => open 3001
-BLOCKCHAIN => wallet-create Alice
-BLOCKCHAIN => mine Alice "Genesis node"
-```
-
-### Node 2 (Bob)
-
-```bash
-npm start
-BLOCKCHAIN => open 3002
-BLOCKCHAIN => connect localhost 3001
-BLOCKCHAIN => wallet-create Bob
-BLOCKCHAIN => mine Bob
-BLOCKCHAIN => send Bob Alice 10 1
-```
-
-### Node 3 (Charlie)
-
-```bash
-npm start
-BLOCKCHAIN => open 3003
-BLOCKCHAIN => connect localhost 3001
-BLOCKCHAIN => wallet-create Charlie
-BLOCKCHAIN => mine-mempool Charlie
-BLOCKCHAIN => history Charlie
-```
-
-## 📁 Cấu trúc dự án
+## 🏗 Cấu trúc Project
 
 ```
 src/
-├── blockchain/          # Core blockchain logic
-│   ├── Block.js
-│   ├── BlockChain.js
-│   ├── Transaction.js
+├── index.js              # Entry point
+├── config/
+│   └── constants.js      # Blockchain configuration
+├── blockchain/
+│   ├── Block.js          # Block với PoW
+│   ├── BlockChain.js     # Core logic
+│   ├── Transaction.js    # Signed transactions
 │   └── CoinbaseTransaction.js
-├── wallet/             # Wallet & balance tracking
-│   ├── Wallet.js
-│   ├── WalletManager.js
-│   └── BalanceTracker.js
-├── p2p/                # Peer-to-peer networking
-│   ├── P2P.js
-│   ├── Messages.js
-│   └── message-type.js
-├── cli/                # Command line interface
-│   ├── cli.js
-│   └── commands/       # Commands grouped by function
-│       ├── network.js
-│       ├── wallet.js
-│       ├── transaction.js
-│       ├── mining.js
-│       ├── blockchain.js
-│       ├── history.js
-│       └── utility.js
-└── util/               # Helper functions
-    └── AddressHelper.js
+├── wallet/
+│   ├── Wallet.js         # ECDSA key pair
+│   ├── WalletManager.js  # Quản lý wallets
+│   └── BalanceTracker.js # Theo dõi số dư
+├── p2p/
+│   ├── P2P.js           # WebSocket P2P
+│   ├── Messages.js       # Protocol messages
+│   ├── SyncManager.js    # Chain sync
+│   └── ...
+├── cli/
+│   ├── cli.js           # Vorpal CLI
+│   └── commands/        # CLI commands
+├── storage/
+│   └── Storage.js       # Persistent storage
+└── util/
+    ├── MerkleTree.js    # Merkle tree
+    ├── AddressHelper.js # Address utilities
+    └── UI.js            # CLI formatting
 ```
 
-## 🔧 Công nghệ
+## 🔐 Tính năng bảo mật
 
-- **Node.js** - Runtime
-- **ws** - WebSocket cho P2P
-- **crypto** - SHA-256 hashing & signatures
-- **vorpal** - Interactive CLI
+- **ECDSA Signatures**: Mỗi transaction được ký bằng private key
+- **Merkle Tree**: Verify transaction trong block O(log n)
+- **Double Spend Protection**: Tracking txid đã sử dụng
+- **Chain Validation**: Verify hash links và difficulty
 
-## 🎓 Mục đích học tập
+## 📝 License
 
-Dự án này giúp hiểu rõ:
-
-- Cách blockchain lưu trữ và liên kết blocks
-- Proof of Work mining algorithm
-- Digital signatures (public/private key)
-- P2P network synchronization
-- Transaction validation và mempool
-- Consensus trong distributed system
-- UTXO tracking và balance calculation
-
-## 📝 Notes
-
-- **Mining reward**: 50 coins per block
-- **Default difficulty**: 4 (có thể thay đổi 1-6)
-- **Data storage**: In-memory (có thể export/import)
-- **Network**: Local WebSocket (không internet)
-- **Wallet format**: RSA public/private keys
-
----
-
-Made for learning blockchain fundamentals 🎓
+MIT
