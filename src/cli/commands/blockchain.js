@@ -154,8 +154,8 @@ function mempoolCommand(vorpal, blockchain) {
         );
         this.log(`${COLORS.dim}─────────────────────────────${COLORS.reset}`);
         pending.forEach((tx, i) => {
-          const from = tx.sender.substring(0, 12);
-          const to = tx.recipient.substring(0, 12);
+          const from = tx.from.substring(0, 12);
+          const to = tx.to.substring(0, 12);
           this.log(
             `  ${i + 1}. ${from}... → ${to}... | ${COLORS.green}${tx.amount}${COLORS.reset} coins | fee: ${tx.fee || 0}`,
           );
