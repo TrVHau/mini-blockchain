@@ -17,16 +17,38 @@ function blockchainCommand(vorpal, blockchain) {
 
 function blockCommand(vorpal, blockchain) {
   vorpal
-    .command("block <index>", "View specific block")
+    .command("block <query>", "View block by index or hash (prefix)")
     .alias("b")
     .action(function (args, callback) {
-      const index = parseInt(args.index);
       const chain = blockchain.get();
+      const query = args.query;
 
-      if (isNaN(index) || index < 0 || index >= chain.length) {
-        this.log(UI.error(`Block not found. Valid: 0-${chain.length - 1}`));
-      } else {
+      // Try as index first
+      const index = parseInt(query);
+      if (!isNaN(index) && index >= 0 && index < chain.length) {
         this.log("\n" + chain[index].toString());
+        callback();
+        return;
+      }
+
+      // Try as hash prefix
+      if (/^[a-f0-9]+$/i.test(query)) {
+        const matches = chain.filter((block) =>
+          block.hash.toLowerCase().startsWith(query.toLowerCase()),
+        );
+
+        if (matches.length === 1) {
+          this.log("\n" + matches[0].toString());
+        } else if (matches.length > 1) {
+          this.log(UI.warning(`Multiple blocks match "${query}":`));
+          matches.forEach((block) => {
+            this.log(`  #${block.index}: ${block.hash.substring(0, 20)}...`);
+          });
+        } else {
+          this.log(UI.error(`Block not found: "${query}"`));
+        }
+      } else {
+        this.log(UI.error(`Invalid query. Use block index or hash prefix.`));
       }
       callback();
     });
@@ -100,16 +122,36 @@ function statsCommand(vorpal, blockchain) {
 
 function txCommand(vorpal, blockchain) {
   vorpal
-    .command("tx <txid>", "View transaction details")
+    .command("tx <txid>", "View transaction by txid or prefix")
     .action(function (args, callback) {
-      const txid = args.txid;
-      const result = blockchain.getTransaction(txid);
+      const query = args.txid;
+
+      // Tìm exact match trước
+      let result = blockchain.getTransaction(query);
+
+      // Nếu không tìm thấy, thử tìm theo prefix
+      if (!result && /^[a-f0-9]+$/i.test(query)) {
+        const chain = blockchain.get();
+        for (const block of chain) {
+          if (block.transactions) {
+            const match = block.transactions.find(
+              (tx) =>
+                tx.txid &&
+                tx.txid.toLowerCase().startsWith(query.toLowerCase()),
+            );
+            if (match) {
+              result = blockchain.getTransaction(match.txid);
+              break;
+            }
+          }
+        }
+      }
 
       if (!result) {
-        this.log(UI.error(`Transaction not found: ${txid}`));
+        this.log(UI.error(`Transaction not found: ${query}`));
       } else {
         const { transaction, blockIndex, confirmations } = result;
-        const confirmed = blockchain.isConfirmed(txid);
+        const confirmed = blockchain.isConfirmed(transaction.txid);
 
         this.log(
           `\n${COLORS.cyan}${ICONS.tx} Transaction Details${COLORS.reset}`,

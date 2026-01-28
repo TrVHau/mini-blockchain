@@ -52,13 +52,16 @@ node src/index.js -h
 
 ### 💰 Wallet
 
-| Lệnh                   | Alias | Mô tả                             |
-| ---------------------- | ----- | --------------------------------- |
-| `wallet-create <name>` | `wc`  | Tạo wallet mới                    |
-| `wallets`              | `wl`  | Danh sách wallets của bạn         |
-| `wallets all`          |       | Xem tất cả địa chỉ có số dư       |
-| `balance <name>`       | `bal` | Xem số dư wallet                  |
-| `address <name>`       |       | Hiển thị địa chỉ đầy đủ (để copy) |
+| Lệnh                   | Alias  | Mô tả                             |
+| ---------------------- | ------ | --------------------------------- |
+| `wallet-create <name>` | `wc`   | Tạo wallet mới                    |
+| `wallets`              | `wl`   | Danh sách wallets của bạn         |
+| `wallets all`          |        | Xem tất cả địa chỉ có số dư       |
+| `balance <name>`       | `bal`  | Xem số dư wallet                  |
+| `address <name>`       | `addr` | Hiển thị địa chỉ đầy đủ (để copy) |
+| `history <name>`       | `h`    | Xem lịch sử giao dịch             |
+| `export <name>`        |        | Export private key (backup)       |
+| `import <name>`        |        | Import wallet từ private key      |
 
 ### 📤 Transaction
 
@@ -68,22 +71,24 @@ node src/index.js -h
 
 ### ⛏ Mining
 
-| Lệnh            | Alias | Mô tả                                              |
-| --------------- | ----- | -------------------------------------------------- |
-| `mine <wallet>` | `m`   | Đào block mới. Có thể dùng tên wallet hoặc địa chỉ |
+| Lệnh                      | Alias | Mô tả                                              |
+| ------------------------- | ----- | -------------------------------------------------- |
+| `mine <wallet>`           | `m`   | Đào block mới. Có thể dùng tên wallet hoặc địa chỉ |
+| `automine <wallet> [sec]` | `am`  | Tự động đào khi có tx (mặc định 10s)               |
+| `stopautomine`            | `sam` | Dừng auto-mine                                     |
 
 ### ⛓ Blockchain
 
-| Lệnh            | Alias | Mô tả                    |
-| --------------- | ----- | ------------------------ |
-| `blockchain`    | `bc`  | Xem toàn bộ chain        |
-| `block <index>` | `b`   | Xem block cụ thể         |
-| `latest`        | `l`   | Block mới nhất           |
-| `validate`      | `v`   | Kiểm tra chain hợp lệ    |
-| `stats`         |       | Thống kê blockchain      |
-| `tx <txid>`     |       | Xem chi tiết transaction |
-| `mempool`       | `mp`  | Xem pending transactions |
-| `fee`           |       | Ước tính phí giao dịch   |
+| Lệnh            | Alias | Mô tả                           |
+| --------------- | ----- | ------------------------------- |
+| `blockchain`    | `bc`  | Xem toàn bộ chain               |
+| `block <query>` | `b`   | Xem block theo index hoặc hash  |
+| `latest`        | `l`   | Block mới nhất                  |
+| `validate`      | `v`   | Kiểm tra chain hợp lệ           |
+| `stats`         |       | Thống kê blockchain             |
+| `tx <txid>`     |       | Xem transaction (hỗ trợ prefix) |
+| `mempool`       | `mp`  | Xem pending transactions        |
+| `fee`           |       | Ước tính phí giao dịch          |
 
 ## 🎯 Demo: 2 Nodes
 

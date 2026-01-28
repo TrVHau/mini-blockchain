@@ -116,8 +116,56 @@ class WalletManager {
     }
     return wallet.privateKey;
   }
+
   hasWallet(name) {
     return this.wallets.has(name);
+  }
+
+  // Import wallet từ private key
+  importWallet(name, privateKeyPEM) {
+    if (this.wallets.has(name)) {
+      throw new Error("Wallet with this name already exists");
+    }
+
+    // Validate và extract public key từ private key
+    const crypto = require("crypto");
+    try {
+      const privateKey = crypto.createPrivateKey(privateKeyPEM);
+      const publicKey = crypto.createPublicKey(privateKey);
+
+      const publicKeyPEM = publicKey.export({ type: "spki", format: "pem" });
+      const address = publicKeyToAddress(publicKeyPEM);
+
+      const wallet = {
+        publicKey: publicKeyPEM,
+        privateKey: privateKeyPEM,
+        address: address,
+      };
+
+      this.wallets.set(name, wallet);
+
+      // Lưu wallet vào file
+      const filePath = path.join(this.walletFileDir, `${name}.json`);
+      fs.writeFileSync(filePath, JSON.stringify(wallet));
+
+      return address;
+    } catch (err) {
+      throw new Error("Invalid private key format");
+    }
+  }
+
+  // Delete wallet
+  deleteWallet(name) {
+    if (!this.wallets.has(name)) {
+      throw new Error("Wallet not found");
+    }
+
+    this.wallets.delete(name);
+    const filePath = path.join(this.walletFileDir, `${name}.json`);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    return true;
   }
 }
 module.exports = { WalletManager };

@@ -83,6 +83,100 @@ function mineCommand(vorpal, walletManager, blockchain, p2p) {
     });
 }
 
+// Store auto-mine interval globally
+let autoMineInterval = null;
+
+function autoMineCommand(vorpal, walletManager, blockchain, p2p) {
+  vorpal
+    .command(
+      "automine <wallet> [interval]",
+      "Auto-mine when mempool has transactions. Interval in seconds (default: 10)",
+    )
+    .alias("am")
+    .action(function (args, callback) {
+      try {
+        // Stop existing auto-mine
+        if (autoMineInterval) {
+          clearInterval(autoMineInterval);
+          autoMineInterval = null;
+          this.log(UI.info("Auto-mine stopped"));
+          callback();
+          return;
+        }
+
+        let minerAddress;
+        try {
+          minerAddress = walletManager.getPublicKey(args.wallet);
+        } catch {
+          if (args.wallet.length === 64 && /^[a-f0-9]+$/i.test(args.wallet)) {
+            minerAddress = args.wallet;
+          } else {
+            throw new Error(`Wallet not found: ${args.wallet}`);
+          }
+        }
+
+        const intervalSec = parseInt(args.interval) || 10;
+        const displayName = shortenAddress(minerAddress);
+
+        this.log(
+          UI.success(
+            `Auto-mine started for ${displayName} (every ${intervalSec}s)`,
+          ),
+        );
+        this.log(UI.info("Run 'automine' again to stop\n"));
+
+        const self = this;
+
+        autoMineInterval = setInterval(() => {
+          if (blockchain.mempool.length > 0) {
+            self.log(
+              UI.info(
+                `Auto-mining ${blockchain.mempool.length} pending tx(s)...`,
+              ),
+            );
+            try {
+              const newBlock = blockchain.mineBlock(minerAddress);
+              if (newBlock) {
+                const reward = newBlock.coinbaseTx
+                  ? newBlock.coinbaseTx.amount
+                  : 0;
+                self.log(
+                  UI.success(
+                    `Block #${newBlock.index} mined! Reward: ${reward} coins`,
+                  ),
+                );
+                p2p.broadcastNewBlock(newBlock);
+              }
+            } catch (err) {
+              self.log(UI.error(`Auto-mine error: ${err.message}`));
+            }
+          }
+        }, intervalSec * 1000);
+      } catch (err) {
+        this.log(UI.error(`Error: ${err.message}`));
+      }
+      callback();
+    });
+}
+
+function stopAutoMineCommand(vorpal) {
+  vorpal
+    .command("stopautomine", "Stop auto-mining")
+    .alias("sam")
+    .action(function (args, callback) {
+      if (autoMineInterval) {
+        clearInterval(autoMineInterval);
+        autoMineInterval = null;
+        this.log(UI.success("Auto-mine stopped"));
+      } else {
+        this.log(UI.info("Auto-mine is not running"));
+      }
+      callback();
+    });
+}
+
 module.exports = {
   mineCommand,
+  autoMineCommand,
+  stopAutoMineCommand,
 };

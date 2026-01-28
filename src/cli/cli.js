@@ -72,12 +72,17 @@ function cli(options = {}) {
   walletCommands.listWalletsCommand(vorpal, walletManager, blockchain);
   walletCommands.balanceCommand(vorpal, walletManager, blockchain);
   walletCommands.addressCommand(vorpal, walletManager);
+  walletCommands.historyCommand(vorpal, walletManager, blockchain);
+  walletCommands.exportCommand(vorpal, walletManager);
+  walletCommands.importCommand(vorpal, walletManager);
 
   // Transaction Commands
   transactionCommands.sendCommand(vorpal, walletManager, blockchain, p2p);
 
   // Mining Commands
   miningCommands.mineCommand(vorpal, walletManager, blockchain, p2p);
+  miningCommands.autoMineCommand(vorpal, walletManager, blockchain, p2p);
+  miningCommands.stopAutoMineCommand(vorpal);
 
   // Blockchain Commands
   blockchainCommands.blockchainCommand(vorpal, blockchain);

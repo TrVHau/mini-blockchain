@@ -147,9 +147,157 @@ function addressCommand(vorpal, walletManager) {
     });
 }
 
+function historyCommand(vorpal, walletManager, blockchain) {
+  vorpal
+    .command("history <name>", "View transaction history of a wallet")
+    .alias("h")
+    .action(function (args, callback) {
+      try {
+        const address = walletManager.getPublicKey(args.name);
+        const history = blockchain.getTransactionsHistory(address);
+
+        if (history.length === 0) {
+          this.log(UI.info(`No transactions found for ${args.name}`));
+        } else {
+          this.log(
+            `\n${COLORS.cyan}${ICONS.wallet} Transaction History: ${args.name}${COLORS.reset}`,
+          );
+          this.log(`${COLORS.dim}${"─".repeat(50)}${COLORS.reset}`);
+
+          history.forEach((tx, i) => {
+            const date = new Date(tx.timestamp).toLocaleString();
+            const typeIcon =
+              tx.type === "MINING_REWARD"
+                ? ICONS.mining
+                : tx.type === "SENT"
+                  ? ICONS.send
+                  : ICONS.receive;
+            const amountColor = tx.type === "SENT" ? COLORS.red : COLORS.green;
+            const sign = tx.type === "SENT" ? "-" : "+";
+
+            this.log(
+              `  ${COLORS.dim}${i + 1}.${COLORS.reset} ${typeIcon} ${tx.type}`,
+            );
+            this.log(`     ${COLORS.dim}Date:${COLORS.reset} ${date}`);
+            if (tx.type !== "MINING_REWARD") {
+              this.log(
+                `     ${COLORS.dim}From:${COLORS.reset} ${shortenAddress(tx.from)}`,
+              );
+              this.log(
+                `     ${COLORS.dim}To:${COLORS.reset}   ${shortenAddress(tx.to)}`,
+              );
+            }
+            this.log(
+              `     ${COLORS.dim}Amount:${COLORS.reset} ${amountColor}${sign}${tx.amount}${COLORS.reset} coins`,
+            );
+            if (tx.fee > 0) {
+              this.log(
+                `     ${COLORS.dim}Fee:${COLORS.reset} ${COLORS.yellow}${tx.fee}${COLORS.reset}`,
+              );
+            }
+            this.log(
+              `     ${COLORS.dim}Block:${COLORS.reset} #${tx.blockIndex}`,
+            );
+            this.log(`${COLORS.dim}${"─".repeat(50)}${COLORS.reset}`);
+          });
+
+          // Summary
+          const received = history
+            .filter((tx) => tx.type !== "SENT")
+            .reduce((sum, tx) => sum + tx.amount, 0);
+          const sent = history
+            .filter((tx) => tx.type === "SENT")
+            .reduce((sum, tx) => sum + tx.amount, 0);
+          const fees = history
+            .filter((tx) => tx.type === "SENT")
+            .reduce((sum, tx) => sum + (tx.fee || 0), 0);
+
+          this.log(`\n  ${COLORS.bright}Summary:${COLORS.reset}`);
+          this.log(
+            `  ${COLORS.green}Total Received: +${received}${COLORS.reset} coins`,
+          );
+          this.log(`  ${COLORS.red}Total Sent: -${sent}${COLORS.reset} coins`);
+          this.log(
+            `  ${COLORS.yellow}Total Fees: -${fees}${COLORS.reset} coins\n`,
+          );
+        }
+      } catch (err) {
+        this.log(UI.error(`Error: ${err.message}`));
+      }
+      callback();
+    });
+}
+
+function exportCommand(vorpal, walletManager) {
+  vorpal
+    .command("export <name>", "Export wallet private key (KEEP SECRET!)")
+    .action(function (args, callback) {
+      try {
+        const privateKey = walletManager.getPrivateKey(args.name);
+        const address = walletManager.getPublicKey(args.name);
+
+        this.log(
+          `\n${COLORS.red}⚠ WARNING: KEEP THIS PRIVATE KEY SECRET!${COLORS.reset}`,
+        );
+        this.log(
+          `${COLORS.dim}Anyone with this key can steal your coins.${COLORS.reset}\n`,
+        );
+        this.log(`${COLORS.cyan}Wallet:${COLORS.reset} ${args.name}`);
+        this.log(
+          `${COLORS.cyan}Address:${COLORS.reset} ${shortenAddress(address)}\n`,
+        );
+        this.log(`${COLORS.yellow}Private Key:${COLORS.reset}`);
+        this.log(`${COLORS.dim}${privateKey}${COLORS.reset}`);
+      } catch (err) {
+        this.log(UI.error(`Wallet "${args.name}" not found`));
+      }
+      callback();
+    });
+}
+
+function importCommand(vorpal, walletManager) {
+  vorpal
+    .command("import <name>", "Import wallet from private key")
+    .action(function (args, callback) {
+      const self = this;
+
+      if (walletManager.hasWallet(args.name)) {
+        self.log(UI.error(`Wallet "${args.name}" already exists`));
+        callback();
+        return;
+      }
+
+      self.prompt(
+        {
+          type: "password",
+          name: "privateKey",
+          message: "Paste private key (PEM format): ",
+        },
+        function (result) {
+          try {
+            const address = walletManager.importWallet(
+              args.name,
+              result.privateKey,
+            );
+            self.log(UI.success(`Wallet "${args.name}" imported!`));
+            self.log(
+              `${COLORS.dim}Address: ${shortenAddress(address)}${COLORS.reset}\n`,
+            );
+          } catch (err) {
+            self.log(UI.error(`Import failed: ${err.message}`));
+          }
+          callback();
+        },
+      );
+    });
+}
+
 module.exports = {
   walletCreateCommand,
   listWalletsCommand,
   balanceCommand,
   addressCommand,
+  historyCommand,
+  exportCommand,
+  importCommand,
 };
