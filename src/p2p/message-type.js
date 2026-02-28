@@ -10,14 +10,9 @@ const MESSAGE_TYPE = {
   // Transactions
   TRANSACTION: "TRANSACTION",
 
-  // Handshake & Discovery
+  // Handshake
   HANDSHAKE: "HANDSHAKE", // Node mới gửi thông tin về mình
   HANDSHAKE_ACK: "HANDSHAKE_ACK", // Xác nhận handshake + gửi chain height
-  REQUEST_PEERS: "REQUEST_PEERS",
-  RECEIVE_PEERS: "RECEIVE_PEERS",
-
-  // Sync status
-  SYNC_STATUS: "SYNC_STATUS", // Thông báo trạng thái sync
 };
 
 module.exports = MESSAGE_TYPE;

@@ -1,5 +1,8 @@
 const fs = require("fs");
 const path = require("path");
+const { Logger } = require("../util/Logger.js");
+
+const logger = new Logger("STORAGE");
 
 /**
  * Storage - Lưu trữ blockchain và wallet cho mỗi node
@@ -27,7 +30,7 @@ class Storage {
       fs.writeFileSync(this._path("blockchain.json"), JSON.stringify(chain));
       return true;
     } catch (err) {
-      console.error("Error saving blockchain:", err.message);
+      logger.error("Error saving blockchain:", err.message);
       return false;
     }
   }
@@ -40,7 +43,7 @@ class Storage {
       }
       return null;
     } catch (err) {
-      console.error("Error loading blockchain:", err.message);
+      logger.error("Error loading blockchain:", err.message);
       return null;
     }
   }

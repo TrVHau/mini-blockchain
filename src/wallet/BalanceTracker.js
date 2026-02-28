@@ -3,35 +3,30 @@ class BalanceTracker {
     this.balances = new Map();
   }
 
-  // tính toán balance từ blockchain
+  // Rebuild toàn bộ balance từ chain (dùng khi receiveChain)
   updateBalance(blockchain) {
     this.balances.clear();
+    blockchain.forEach((block) => this._processBlock(block));
+  }
 
-    blockchain.forEach((block) => {
-      // xử lý coinbase transaction
-      if (block.coinbaseTx) {
-        this.credit(block.coinbaseTx.to, block.coinbaseTx.amount);
-      }
+  // Incremental update từ 1 block mới (O(1) thay vì O(n))
+  processBlock(block) {
+    this._processBlock(block);
+  }
 
-      // xử lý regular transactions
-      if (block.transactions && block.transactions.length > 0) {
-        let totalFees = 0;
+  _processBlock(block) {
+    // Coinbase reward (đã bao gồm fees)
+    if (block.coinbaseTx) {
+      this.credit(block.coinbaseTx.to, block.coinbaseTx.amount);
+    }
 
-        block.transactions.forEach((tx) => {
-          // trừ tiền người gửi
-          this.debit(tx.from, tx.amount + (tx.fee || 0));
-          // cộng tiền người nhận
-          this.credit(tx.to, tx.amount);
-          // tính tổng fee
-          totalFees += tx.fee || 0;
-        });
-
-        // Cộng fees cho miner
-        if (totalFees > 0 && block.minerAddress) {
-          this.credit(block.minerAddress, totalFees);
-        }
-      }
-    });
+    // Regular transactions
+    if (block.transactions && block.transactions.length > 0) {
+      block.transactions.forEach((tx) => {
+        this.debit(tx.from, tx.amount + (tx.fee || 0));
+        this.credit(tx.to, tx.amount);
+      });
+    }
   }
 
   credit(address, amount) {

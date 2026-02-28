@@ -1,6 +1,9 @@
 const MESSAGE_TYPE = require("./message-type.js");
 const { Transaction } = require("../blockchain/Transaction.js");
 const { CoinbaseTransaction } = require("../blockchain/CoinbaseTransaction.js");
+const { Logger } = require("../util/Logger.js");
+
+const logger = new Logger("MSG_HANDLER");
 
 class MessageHandler {
   constructor(blockchain, relayBlock, relayTransaction) {
@@ -13,7 +16,7 @@ class MessageHandler {
     const messageHandlers = {
       [MESSAGE_TYPE.NEW_BLOCK]: () => {
         if (!data.data || !data.data.block) {
-          console.error("Invalid NEW_BLOCK message: missing block data");
+          logger.error("Invalid NEW_BLOCK message: missing block data");
           return;
         }
         handlers.handleNewBlock(data.data.block, socket);
@@ -27,7 +30,7 @@ class MessageHandler {
 
       [MESSAGE_TYPE.RECEIVE_CHAIN]: () => {
         if (!data.data || !data.data.chain) {
-          console.error("Invalid RECEIVE_CHAIN message: missing chain data");
+          logger.error("Invalid RECEIVE_CHAIN message: missing chain data");
           return;
         }
         handlers.handleReceiveChain(data.data.chain);
@@ -41,14 +44,14 @@ class MessageHandler {
     if (handler) {
       handler();
     } else {
-      console.log(`Unknown message type: ${data.type}`);
+      logger.debug(`Unhandled message type: ${data.type}`);
     }
   }
 
   handleTransaction(data, socket) {
     try {
       if (!data.data || !data.data.transaction) {
-        console.error("Invalid TRANSACTION message: missing transaction data");
+        logger.error("Invalid TRANSACTION message: missing transaction data");
         return;
       }
 
@@ -56,7 +59,7 @@ class MessageHandler {
 
       // Validate required fields
       if (!txData.from || !txData.to || typeof txData.amount !== "number") {
-        console.error("Invalid transaction: missing required fields");
+        logger.error("Invalid transaction: missing required fields");
         return;
       }
 
@@ -74,16 +77,19 @@ class MessageHandler {
         );
         transaction.signature = txData.signature;
         transaction.timestamp = txData.timestamp;
-        transaction.senderPublicKey = txData.senderPublicKey; // Quan trọng: copy PEM key
+        transaction.senderPublicKey = txData.senderPublicKey;
+        transaction.type = txData.type || "TRANSFER";
+        // Reconstruct txid from the original transaction data
+        transaction.txid = txData.txid || transaction.calculateTxid();
       }
 
       this.blockchain.addTransaction(transaction);
-      console.log("Transaction added to mempool from peer");
+      logger.info("Transaction added to mempool from peer");
 
       //  RELAY: Forward transaction to other peers (except sender)
       this.relayTransaction(transaction, socket);
     } catch (err) {
-      console.error("Invalid transaction received from peer:", err.message);
+      logger.debug(`Transaction from peer rejected: ${err.message}`);
     }
   }
 }

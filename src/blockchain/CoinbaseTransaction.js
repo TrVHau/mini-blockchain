@@ -1,10 +1,10 @@
 const BLOCKCHAIN_CONSTANTS = require("../config/constants.js");
 
 class CoinbaseTransaction {
-  constructor(minerAddress, blockHeight) {
+  constructor(minerAddress, blockHeight, totalFees = 0) {
     this.from = "COINBASE";
     this.to = minerAddress;
-    this.amount = this.calculateReward(blockHeight);
+    this.amount = this.calculateReward(blockHeight) + totalFees;
     this.fee = 0;
     this.timestamp = Date.now();
     this.type = "COINBASE";
@@ -16,7 +16,7 @@ class CoinbaseTransaction {
     // Block 100-199: 25 coins
     // Block 200-299: 12.5 coins
     const halvings = Math.floor(
-      blockHeight / BLOCKCHAIN_CONSTANTS.HALVING_INTERVAL
+      blockHeight / BLOCKCHAIN_CONSTANTS.HALVING_INTERVAL,
     );
     const reward =
       BLOCKCHAIN_CONSTANTS.INITIAL_MINING_REWARD / Math.pow(2, halvings);

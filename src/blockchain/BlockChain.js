@@ -2,6 +2,11 @@ const { Block } = require("./Block");
 const { BalanceTracker } = require("../wallet/BalanceTracker.js");
 const { shortenAddress } = require("../util/AddressHelper.js");
 const BLOCKCHAIN_CONSTANTS = require("../config/constants.js");
+const TransactionValidator = require("./TransactionValidator.js");
+const BlockValidator = require("./BlockValidator.js");
+const { Logger } = require("../util/Logger.js");
+
+const logger = new Logger("BLOCKCHAIN");
 
 class BlockChain {
   constructor(difficulty = BLOCKCHAIN_CONSTANTS.DEFAULT_DIFFICULTY) {
@@ -10,6 +15,10 @@ class BlockChain {
     this.mempool = [];
     this.balanceTracker = new BalanceTracker();
     this.spentTxids = new Set(); // Track spent transactions (double spend protection)
+
+    // New components
+    this.transactionValidator = new TransactionValidator(this);
+    this.blockValidator = new BlockValidator(this);
   }
 
   get() {
@@ -89,14 +98,14 @@ class BlockChain {
         this.difficulty + 1,
         BLOCKCHAIN_CONSTANTS.MAX_DIFFICULTY,
       );
-      console.log(`Difficulty increased to ${this.difficulty}`);
+      logger.info(`Difficulty increased to ${this.difficulty}`);
     } else if (timeTaken > timeExpected * 2) {
       // Mining quá chậm -> giảm difficulty
       this.difficulty = Math.max(
         this.difficulty - 1,
         BLOCKCHAIN_CONSTANTS.MIN_DIFFICULTY,
       );
-      console.log(`Difficulty decreased to ${this.difficulty}`);
+      logger.info(`Difficulty decreased to ${this.difficulty}`);
     }
 
     return this.difficulty;
@@ -127,45 +136,32 @@ class BlockChain {
   receiveBlock(block) {
     const latestBlock = this.getLatestBlock();
 
-    // Kiểm tra block có hợp lệ không
-    if (block.index !== latestBlock.index + 1) {
-      console.log(
-        `Block index mismatch. Expected ${latestBlock.index + 1}, got ${
-          block.index
-        }`,
-      );
-      return false;
-    }
-
-    if (block.previousHash !== latestBlock.hash) {
-      console.log("Block previousHash doesn't match latest block hash");
-      return false;
-    }
-
     // Recreate block object để có đầy đủ methods
     const receivedBlock = this._recreateBlock(block);
 
-    // Verify hash
-    if (receivedBlock.calculateHash() !== block.hash) {
-      console.log("Block hash is invalid");
-      return false;
-    }
+    // Use BlockValidator for comprehensive validation
+    const isValid = this.blockValidator.validate(receivedBlock, {
+      difficulty: this.difficulty,
+      expectedIndex: latestBlock.index + 1,
+      expectedPreviousHash: latestBlock.hash,
+      previousBlock: latestBlock,
+      expectedReward: this.getBlockReward(),
+    });
 
-    // Verify difficulty
-    if (!block.hash.startsWith("0".repeat(this.difficulty))) {
-      console.log("Block doesn't meet difficulty requirement");
+    if (!isValid) {
+      logger.error(`Block #${block.index} validation failed`);
       return false;
     }
 
     this.chain.push(receivedBlock);
 
-    // Update balance tracker after adding block
-    this.balanceTracker.updateBalance(this.chain);
+    // Incremental balance update (chỉ block mới)
+    this.balanceTracker.processBlock(receivedBlock);
 
     // Xóa các transactions đã được confirm khỏi mempool
     this._removeConfirmedTransactions(receivedBlock);
 
-    console.log(`Block #${block.index} accepted and added to chain`);
+    logger.success(`Block #${block.index} accepted and added to chain`);
     return true;
   }
 
@@ -180,8 +176,13 @@ class BlockChain {
     const confirmedTxs = block.transactions;
     const beforeCount = this.mempool.length;
 
+    const confirmedTxids = new Set(
+      confirmedTxs.filter((tx) => tx.txid).map((tx) => tx.txid),
+    );
+
     this.mempool = this.mempool.filter((mempoolTx) => {
-      // Kiểm tra xem tx trong mempool có match với tx trong block không
+      // So sánh bằng txid trước (nhanh), fallback content matching
+      if (mempoolTx.txid && confirmedTxids.has(mempoolTx.txid)) return false;
       return !confirmedTxs.some(
         (confirmedTx) =>
           confirmedTx.from === mempoolTx.from &&
@@ -193,48 +194,31 @@ class BlockChain {
 
     const removedCount = beforeCount - this.mempool.length;
     if (removedCount > 0) {
-      console.log(`  Removed ${removedCount} confirmed tx(s) from mempool`);
+      logger.debug(`Removed ${removedCount} confirmed tx(s) from mempool`);
     }
   }
 
   isChainValid(chain = null) {
     const chainToValidate = chain || this.chain;
-
-    for (let i = 1; i < chainToValidate.length; i++) {
-      const currentBlock = chainToValidate[i];
-      const previousBlock = chainToValidate[i - 1];
-
-      // Recreate block nếu cần để có method calculateHash
-      const blockToCheck = this._recreateBlock(currentBlock);
-
-      // Check xem bị sửa chưa
-      if (blockToCheck.hash !== blockToCheck.calculateHash()) {
-        return false;
-      }
-      // Check liên kết có bị phá vỡ không
-      if (blockToCheck.previousHash !== previousBlock.hash) {
-        return false;
-      }
-      // check độ khó
-      if (!blockToCheck.hash.startsWith("0".repeat(this.difficulty))) {
-        return false;
-      }
-    }
-    return true;
+    return this.blockValidator.validateChain(chainToValidate, this.difficulty);
   }
 
   receiveChain(newChain) {
+    // Validate new chain
+    if (!this.blockValidator.validateChain(newChain, this.difficulty)) {
+      logger.error("Received chain is invalid");
+      return false;
+    }
+
+    // Check if new chain is longer
     if (newChain.length <= this.chain.length) {
-      console.log("Received chain is not longer than current chain.");
+      logger.info(
+        `Received chain is not longer than current chain (${newChain.length} <= ${this.chain.length})`,
+      );
       return false;
     }
 
-    if (!this.isChainValid(newChain)) {
-      console.log("Received chain is invalid.");
-      return false;
-    }
-
-    console.log(
+    logger.info(
       `Replacing current chain (${this.chain.length} blocks) with new chain (${newChain.length} blocks)`,
     );
 
@@ -246,7 +230,7 @@ class BlockChain {
 
     // Reset mempool khi nhận chain mới vì các tx cũ có thể không còn valid
     this.mempool = [];
-    console.log("Mempool cleared after receiving new chain");
+    logger.info("Mempool cleared after receiving new chain");
 
     return true;
   }
@@ -255,56 +239,20 @@ class BlockChain {
     this.mempool.push(transaction);
   }
 
-  mineMempool(minerAddress = "SYSTEM") {
-    if (this.mempool.length === 0) {
-      console.log("Mempool is empty, nothing to mine.");
-      return;
-    }
-    const block = this.mineBlock(minerAddress, null);
-    console.log("Block mined successfully!");
-    return block;
-  }
-
   // thêm validate và transaction vào mempool
   addTransaction(transaction) {
-    // 1. Kiểm tra txid duplicate (double spend trong mempool)
-    if (transaction.txid) {
-      const existsInMempool = this.mempool.some(
-        (tx) => tx.txid === transaction.txid,
-      );
-      if (existsInMempool) {
-        throw new Error(
-          "Transaction already exists in mempool (duplicate txid)",
-        );
-      }
+    // Use TransactionValidator for comprehensive validation
+    const isValid = this.transactionValidator.validate(transaction, {
+      balanceTracker: this.balanceTracker,
+      mempool: this.mempool,
+      spentTxids: this.spentTxids,
+    });
 
-      // Kiểm tra double spend trong blockchain
-      if (this.spentTxids.has(transaction.txid)) {
-        throw new Error("Transaction already spent (double spend attempt)");
-      }
+    if (!isValid) {
+      throw new Error("Transaction validation failed");
     }
 
-    // 2. Kiểm tra duplicate cũ (fallback)
-    const isDuplicate = this.mempool.some(
-      (tx) =>
-        tx.from === transaction.from &&
-        tx.to === transaction.to &&
-        tx.amount === transaction.amount &&
-        tx.timestamp === transaction.timestamp,
-    );
-
-    if (isDuplicate) {
-      throw new Error("Transaction already exists in mempool");
-    }
-
-    // 3. Validate signature
-    if (transaction.type === "TRANSFER") {
-      if (!transaction.isValid()) {
-        throw new Error("Invalid transaction signature");
-      }
-    }
-
-    // 4. Kiểm tra mempool size limit
+    // Kiểm tra mempool size limit
     if (
       this.mempool.length >=
       BLOCKCHAIN_CONSTANTS.MAX_TRANSACTIONS_PER_BLOCK * 2
@@ -312,25 +260,9 @@ class BlockChain {
       throw new Error("Mempool is full. Please wait or increase fee.");
     }
 
-    // 5. Validate balance
-    const currentBalance = this.balanceTracker.getBalance(transaction.from);
-    const pendingAmount = this.mempool
-      .filter((tx) => tx.from === transaction.from)
-      .reduce((sum, tx) => sum + tx.getTotalCost(), 0);
-
-    const totalCost = transaction.getTotalCost();
-    const availableBalance = currentBalance - pendingAmount;
-
-    if (availableBalance < totalCost) {
-      throw new Error(
-        `Insufficient balance. Current: ${currentBalance}, Pending: ${pendingAmount}, Available: ${availableBalance}, Required: ${totalCost}`,
-      );
-    }
-
     this.mempool.push(transaction);
-    console.log(
-      "Transaction added to mempool. mempool size:",
-      this.mempool.length,
+    logger.info(
+      `Transaction added to mempool. Mempool size: ${this.mempool.length}`,
     );
     return true;
   }
@@ -386,17 +318,15 @@ class BlockChain {
       }
     }
 
-    // Update balances
-    this.balanceTracker.updateBalance(this.chain);
+    // Incremental balance update
+    this.balanceTracker.processBlock(newBlock);
 
     // Điều chỉnh difficulty
     this.adjustDifficulty();
 
     const displayAddress =
       minerAddress === "SYSTEM" ? "SYSTEM" : shortenAddress(minerAddress);
-    console.log(
-      `Block #${newBlock.index} mined successfully by ${displayAddress}`,
-    );
+    logger.success(`Block #${newBlock.index} mined by ${displayAddress}`);
     return newBlock;
   }
 
@@ -406,15 +336,6 @@ class BlockChain {
 
   getAllBalances() {
     return this.balanceTracker.getAllBalances();
-  }
-
-  getMiningReward() {
-    const latestBlock = this.getLatestBlock();
-    return latestBlock.coinbaseTx ? latestBlock.coinbaseTx.amount : 0;
-  }
-
-  addBlock(data) {
-    return this.mineBlock("SYSTEM", data);
   }
 
   getTransactionsHistory(address) {
@@ -462,9 +383,9 @@ class BlockChain {
     const halvings = Math.floor(
       this.chain.length / BLOCKCHAIN_CONSTANTS.HALVING_INTERVAL,
     );
-    return Math.floor(
-      BLOCKCHAIN_CONSTANTS.INITIAL_MINING_REWARD / Math.pow(2, halvings),
-    );
+    const reward =
+      BLOCKCHAIN_CONSTANTS.INITIAL_MINING_REWARD / Math.pow(2, halvings);
+    return reward > 0 ? reward : 0;
   }
 
   /**
@@ -504,6 +425,7 @@ class BlockChain {
       mempoolSize: this.mempool.length,
       avgBlockTime: Math.round(avgBlockTime / 1000), // seconds
       latestBlockHash: this.getLatestBlock().hash,
+      spentTxCount: this.spentTxids.size,
     };
   }
 
