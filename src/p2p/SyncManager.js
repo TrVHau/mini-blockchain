@@ -1,5 +1,8 @@
 const Messages = require("./Messages.js");
 const BLOCKCHAIN_CONSTANTS = require("../config/constants.js");
+const { Logger } = require("../util/Logger.js");
+
+const logger = new Logger("SYNC");
 
 /**
  * SyncManager - Quản lý đồng bộ blockchain giữa các node
@@ -39,7 +42,9 @@ class SyncManager {
 
     // Không cần sync nếu chain của mình đã dài hơn hoặc bằng
     if (localHeight >= peerHeight) {
-      console.log(`No sync needed. Local: ${localHeight}, Peer: ${peerHeight}`);
+      logger.debug(
+        `No sync needed. Local: ${localHeight}, Peer: ${peerHeight}`,
+      );
       return false;
     }
 
@@ -47,11 +52,11 @@ class SyncManager {
     if (this.syncState.isSyncing) {
       const timeSinceLastSync = Date.now() - this.syncState.lastSyncAttempt;
       if (timeSinceLastSync < this.SYNC_TIMEOUT) {
-        console.log("Already syncing, please wait...");
+        logger.debug("Already syncing, please wait...");
         return false;
       }
       // Timeout, reset sync state
-      console.log("Previous sync timed out, retrying...");
+      logger.warn("Previous sync timed out, retrying...");
       this.resetSyncState();
     }
 
@@ -60,18 +65,18 @@ class SyncManager {
     this.syncState.syncingFromPeer = socket;
     this.syncState.lastSyncAttempt = Date.now();
 
-    console.log(`Starting sync from block ${localHeight} to ${peerHeight}...`);
+    logger.info(`Starting sync from block ${localHeight} to ${peerHeight}...`);
 
     // Quyết định sync partial hay full
     const blocksBehind = peerHeight - localHeight;
 
     if (blocksBehind <= this.MAX_BLOCKS_PER_REQUEST && localHeight > 0) {
       // Partial sync - chỉ lấy những block thiếu
-      console.log(`Requesting ${blocksBehind} missing blocks...`);
+      logger.info(`Requesting ${blocksBehind} missing blocks...`);
       sendMessage(socket, Messages.requestBlocksFrom(localHeight + 1));
     } else {
       // Full sync - lấy toàn bộ chain
-      console.log(
+      logger.info(
         `Requesting full blockchain (${blocksBehind} blocks behind)...`,
       );
       sendMessage(socket, Messages.requestChain());
@@ -88,28 +93,28 @@ class SyncManager {
    */
   handleReceiveBlocks(blocks, fromIndex, totalHeight, socket) {
     if (!this.syncState.isSyncing) {
-      console.log("Received blocks but not syncing, ignoring...");
+      logger.debug("Received blocks but not syncing, ignoring...");
       return false;
     }
 
     if (socket !== this.syncState.syncingFromPeer) {
-      console.log("Received blocks from different peer, ignoring...");
+      logger.debug("Received blocks from different peer, ignoring...");
       return false;
     }
 
-    console.log(`Received ${blocks.length} blocks starting from #${fromIndex}`);
+    logger.info(`Received ${blocks.length} blocks starting from #${fromIndex}`);
 
     let addedCount = 0;
     for (const block of blocks) {
       if (this.blockchain.receiveBlock(block)) {
         addedCount++;
       } else {
-        console.log(`Failed to add block #${block.index}, stopping sync`);
+        logger.warn(`Failed to add block #${block.index}, stopping sync`);
         break;
       }
     }
 
-    console.log(`Added ${addedCount}/${blocks.length} blocks`);
+    logger.info(`Added ${addedCount}/${blocks.length} blocks`);
 
     // Kiểm tra đã sync xong chưa
     const currentHeight = this.blockchain.getLatestBlock().index;
@@ -128,7 +133,7 @@ class SyncManager {
    */
   handleReceiveChain(chain) {
     if (!chain || !Array.isArray(chain)) {
-      console.log("Invalid chain received");
+      logger.error("Invalid chain received");
       return false;
     }
 
@@ -148,7 +153,7 @@ class SyncManager {
    */
   completSync() {
     const height = this.blockchain.getLatestBlock().index;
-    console.log(`✓ Sync completed! Chain height: ${height}`);
+    logger.success(`Sync completed! Chain height: ${height}`);
     this.resetSyncState();
   }
 
@@ -156,18 +161,17 @@ class SyncManager {
    * Xử lý khi sync thất bại
    */
   handleSyncFailure(reason) {
-    console.log(`Sync failed: ${reason}`);
+    logger.warn(`Sync failed: ${reason}`);
 
     this.syncState.retryCount++;
 
     if (this.syncState.retryCount < this.MAX_RETRY) {
-      console.log(
+      logger.info(
         `Will retry (${this.syncState.retryCount}/${this.MAX_RETRY})...`,
       );
       this.syncState.isSyncing = false;
-      // Sẽ retry ở lần nhận handshake tiếp theo
     } else {
-      console.log("Max retries reached, giving up sync from this peer");
+      logger.error("Max retries reached, giving up sync from this peer");
       this.resetSyncState();
     }
   }
@@ -194,7 +198,7 @@ class SyncManager {
         this.syncState.isSyncing &&
         this.syncState.syncingFromPeer === socket
       ) {
-        console.log("Sync timeout, retrying...");
+        logger.warn("Sync timeout, retrying...");
         this.handleSyncFailure("Timeout");
 
         // Auto retry

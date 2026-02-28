@@ -66,6 +66,8 @@ function cli(options = {}) {
   networkCommands.peersCommand(vorpal, p2p);
   networkCommands.statusCommand(vorpal, blockchain, p2p);
   networkCommands.syncCommand(vorpal, p2p);
+  networkCommands.closeCommand(vorpal, p2p);
+  networkCommands.disconnectCommand(vorpal, p2p);
 
   // Wallet Commands
   walletCommands.walletCreateCommand(vorpal, walletManager);
@@ -75,6 +77,7 @@ function cli(options = {}) {
   walletCommands.historyCommand(vorpal, walletManager, blockchain);
   walletCommands.exportCommand(vorpal, walletManager);
   walletCommands.importCommand(vorpal, walletManager);
+  walletCommands.deleteWalletCommand(vorpal, walletManager);
 
   // Transaction Commands
   transactionCommands.sendCommand(vorpal, walletManager, blockchain, p2p);
@@ -93,6 +96,7 @@ function cli(options = {}) {
   blockchainCommands.txCommand(vorpal, blockchain);
   blockchainCommands.mempoolCommand(vorpal, blockchain);
   blockchainCommands.feeCommand(vorpal, blockchain);
+  blockchainCommands.resetCommand(vorpal, blockchain);
 
   // Auto-start server
   if (options.autoStart && options.port) {

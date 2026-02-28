@@ -53,20 +53,6 @@ class Messages {
     return this.createMessage(MESSAGE_TYPE.HANDSHAKE_ACK, nodeInfo);
   }
 
-  // Peer discovery
-  static requestPeers() {
-    return this.createMessage(MESSAGE_TYPE.REQUEST_PEERS);
-  }
-
-  static receivePeers(peers) {
-    return this.createMessage(MESSAGE_TYPE.RECEIVE_PEERS, { peers });
-  }
-
-  // Sync status
-  static syncStatus(status) {
-    return this.createMessage(MESSAGE_TYPE.SYNC_STATUS, status);
-  }
-
   static parse(message) {
     try {
       return JSON.parse(message);

@@ -113,6 +113,9 @@ function statsCommand(vorpal, blockchain) {
         `  Avg Block Time:  ${COLORS.yellow}${stats.avgBlockTime}${COLORS.reset}s`,
       );
       this.log(
+        `  Spent TX:        ${COLORS.dim}${stats.spentTxCount}${COLORS.reset}`,
+      );
+      this.log(
         `  Valid:           ${blockchain.isChainValid() ? COLORS.green + "✓" : COLORS.red + "✗"}${COLORS.reset}`,
       );
       this.log("");
@@ -220,6 +223,36 @@ function feeCommand(vorpal, blockchain) {
     });
 }
 
+function resetCommand(vorpal, blockchain) {
+  vorpal
+    .command("reset", "Reset blockchain to genesis block")
+    .action(function (args, callback) {
+      const self = this;
+      self.prompt(
+        {
+          type: "confirm",
+          name: "confirm",
+          message:
+            "Are you sure? This will delete all blocks and transactions: ",
+          default: false,
+        },
+        function (result) {
+          if (result.confirm) {
+            const { Block } = require("../../blockchain/Block.js");
+            blockchain.chain = [Block.genesis()];
+            blockchain.mempool = [];
+            blockchain.spentTxids.clear();
+            blockchain.balanceTracker.updateBalance(blockchain.chain);
+            self.log(UI.success("Blockchain has been reset to genesis"));
+          } else {
+            self.log(UI.info("Reset cancelled"));
+          }
+          callback();
+        },
+      );
+    });
+}
+
 module.exports = {
   blockchainCommand,
   blockCommand,
@@ -229,4 +262,5 @@ module.exports = {
   txCommand,
   mempoolCommand,
   feeCommand,
+  resetCommand,
 };

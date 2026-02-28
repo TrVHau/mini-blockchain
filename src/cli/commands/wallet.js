@@ -292,6 +292,43 @@ function importCommand(vorpal, walletManager) {
     });
 }
 
+function deleteWalletCommand(vorpal, walletManager) {
+  vorpal
+    .command("wallet-delete <name>", "Delete a wallet")
+    .alias("wd")
+    .action(function (args, callback) {
+      const self = this;
+
+      if (!walletManager.hasWallet(args.name)) {
+        self.log(UI.error(`Wallet "${args.name}" not found`));
+        callback();
+        return;
+      }
+
+      self.prompt(
+        {
+          type: "confirm",
+          name: "confirm",
+          message: `⚠ Delete wallet "${args.name}"? This cannot be undone: `,
+          default: false,
+        },
+        function (result) {
+          if (result.confirm) {
+            try {
+              walletManager.deleteWallet(args.name);
+              self.log(UI.success(`Wallet "${args.name}" deleted`));
+            } catch (err) {
+              self.log(UI.error(`Delete failed: ${err.message}`));
+            }
+          } else {
+            self.log(UI.info("Cancelled"));
+          }
+          callback();
+        },
+      );
+    });
+}
+
 module.exports = {
   walletCreateCommand,
   listWalletsCommand,
@@ -300,4 +337,5 @@ module.exports = {
   historyCommand,
   exportCommand,
   importCommand,
+  deleteWalletCommand,
 };

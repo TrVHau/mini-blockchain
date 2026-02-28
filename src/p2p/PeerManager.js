@@ -1,4 +1,7 @@
 const WebSocket = require("ws");
+const { Logger } = require("../util/Logger.js");
+
+const logger = new Logger("PEER_MGR");
 
 class PeerManager {
   constructor() {
@@ -13,7 +16,7 @@ class PeerManager {
     const index = this.peers.indexOf(socket);
     if (index > -1) {
       this.peers.splice(index, 1);
-      console.log("Peer disconnected. Active peers:", this.peers.length);
+      logger.info(`Peer disconnected. Active peers: ${this.peers.length}`);
     }
   }
 
@@ -21,31 +24,31 @@ class PeerManager {
     try {
       if (index >= 0 && index < this.peers.length) {
         const peer = this.peers[index];
-        console.log(`Disconnecting peer: ${peer._peerAddress}`);
+        logger.info(`Disconnecting peer: ${peer._peerAddress}`);
         peer.close();
-        // Peer sẽ tự động bị xóa khỏi mảng qua event 'close'
       } else {
-        console.log(`Invalid peer index: ${index}`);
+        throw new Error(`Invalid peer index: ${index + 1}`);
       }
     } catch (err) {
-      console.error(`Error disconnecting peer: ${err.message}`);
+      logger.error(`Error disconnecting peer: ${err.message}`);
+      throw err;
     }
   }
 
   disconnectAll() {
     try {
-      console.log(`Disconnecting all ${this.peers.length} peer(s)...`);
+      logger.info(`Disconnecting all ${this.peers.length} peer(s)...`);
       this.peers.forEach((peer) => {
         try {
           peer.close();
         } catch (err) {
-          console.error(`Error closing peer: ${err.message}`);
+          logger.error(`Error closing peer: ${err.message}`);
         }
       });
       this.peers = [];
-      console.log("All peers disconnected.");
+      logger.success("All peers disconnected.");
     } catch (err) {
-      console.error(`Error disconnecting peers: ${err.message}`);
+      logger.error(`Error disconnecting peers: ${err.message}`);
     }
   }
 
@@ -59,7 +62,7 @@ class PeerManager {
   isAlreadyConnected(address) {
     return this.peers.some(
       (peer) =>
-        peer._peerAddress === address || peer._peerAddress?.includes(address)
+        peer._peerAddress === address || peer._peerAddress?.includes(address),
     );
   }
 

@@ -25,12 +25,7 @@ class Block {
    * Tính Merkle Root từ transactions
    */
   calculateMerkleRoot() {
-    if (!this.transactions || this.transactions.length === 0) {
-      return MerkleTree.hash("empty");
-    }
-
-    // Lấy txid hoặc hash của mỗi transaction
-    const txHashes = this.transactions.map((tx) => {
+    const txHashes = (this.transactions || []).map((tx) => {
       if (tx.txid) return tx.txid;
       if (tx.calculateHash) return tx.calculateHash();
       return MerkleTree.hash(JSON.stringify(tx));
@@ -42,6 +37,10 @@ class Block {
         `${this.coinbaseTx.to}|${this.coinbaseTx.amount}|${this.index}`,
       );
       txHashes.unshift(coinbaseHash);
+    }
+
+    if (txHashes.length === 0) {
+      return MerkleTree.hash("empty");
     }
 
     return MerkleTree.calculateRoot(txHashes);
@@ -80,7 +79,11 @@ class Block {
       0,
     );
 
-    this.coinbaseTx = new CoinbaseTransaction(minerAddress, this.index);
+    this.coinbaseTx = new CoinbaseTransaction(
+      minerAddress,
+      this.index,
+      this.totalFees,
+    );
 
     // Tính merkle root sau khi có tất cả transactions
     this.merkleRoot = this.calculateMerkleRoot();

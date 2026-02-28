@@ -1,4 +1,7 @@
 const Messages = require("./Messages.js");
+const { Logger } = require("../util/Logger.js");
+
+const logger = new Logger("BLOCK_HANDLER");
 
 class BlockHandler {
   constructor(blockchain, relayBlock, requestBlockchain) {
@@ -10,7 +13,7 @@ class BlockHandler {
   handleNewBlock(block, fromSocket = null) {
     try {
       if (!block || typeof block.index === "undefined") {
-        console.error("Invalid block received");
+        logger.error("Invalid block received");
         return;
       }
 
@@ -19,29 +22,28 @@ class BlockHandler {
       // Nếu block nhận được là block tiếp theo
       if (block.index === latestBlock.index + 1) {
         if (this.blockchain.receiveBlock(block)) {
-          console.log(`New block #${block.index} synchronized from network`);
+          logger.info(`New block #${block.index} synchronized from network`);
 
           //  RELAY: Forward block to other peers (except sender)
           this.relayBlock(block, fromSocket);
         } else {
-          console.log("Block rejected, requesting full chain...");
+          logger.warn("Block rejected, requesting full chain...");
           this.requestBlockchain();
         }
       }
       // Nếu blockchain của peer khác dài hơn nhiều
       else if (block.index > latestBlock.index + 1) {
-        console.log(
-          `Blockchain seems to be behind (local: ${latestBlock.index}, received: ${block.index})`
+        logger.info(
+          `Blockchain behind (local: ${latestBlock.index}, received: ${block.index}). Requesting full chain...`,
         );
-        console.log("   Requesting full blockchain...");
         this.requestBlockchain();
       }
       // Block cũ hoặc đã có
       else {
-        console.log(`Ignoring old block #${block.index}`);
+        logger.debug(`Ignoring old block #${block.index}`);
       }
     } catch (err) {
-      console.error("Error handling new block:", err.message);
+      logger.error("Error handling new block:", err.message);
     }
   }
 
@@ -49,23 +51,23 @@ class BlockHandler {
     try {
       const message = Messages.receiveChain(this.blockchain.get());
       sendMessage(socket, message);
-      console.log("Sent blockchain to requesting peer");
+      logger.info("Sent blockchain to requesting peer");
     } catch (err) {
-      console.error("Error handling chain request:", err.message);
+      logger.error("Error handling chain request:", err.message);
     }
   }
 
   handleReceiveChain(chain) {
     try {
       if (!chain || !Array.isArray(chain)) {
-        console.error("Invalid chain received");
+        logger.error("Invalid chain received");
         return;
       }
       if (this.blockchain.receiveChain(chain)) {
-        console.log("Blockchain synchronized successfully");
+        logger.success("Blockchain synchronized successfully");
       }
     } catch (err) {
-      console.error("Error receiving chain:", err.message);
+      logger.error("Error receiving chain:", err.message);
     }
   }
 

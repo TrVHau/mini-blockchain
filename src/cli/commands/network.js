@@ -73,7 +73,7 @@ function statusCommand(vorpal, blockchain, p2p) {
         ),
         UI.keyValue(
           "Peers",
-          `${COLORS.yellow}${p2p.peers.length}${COLORS.reset}`,
+          `${COLORS.yellow}${p2p.peers.length}${COLORS.reset} connected`,
         ),
         UI.keyValue(
           "Syncing",
@@ -118,10 +118,48 @@ function syncCommand(vorpal, p2p) {
     });
 }
 
+function closeCommand(vorpal, p2p) {
+  vorpal.command("close", "Close P2P server").action(function (args, callback) {
+    if (p2p.server) {
+      p2p.closeServer();
+      this.log(UI.success("P2P server closed"));
+    } else {
+      this.log(UI.warning("No server running"));
+    }
+    callback();
+  });
+}
+
+function disconnectCommand(vorpal, p2p) {
+  vorpal
+    .command(
+      "disconnect [index]",
+      "Disconnect from peer by index, or all peers",
+    )
+    .alias("dc")
+    .action(function (args, callback) {
+      if (args.index !== undefined) {
+        const idx = parseInt(args.index) - 1;
+        try {
+          p2p.disconnectPeer(idx);
+          this.log(UI.success(`Disconnected from peer ${args.index}`));
+        } catch (err) {
+          this.log(UI.error(err.message));
+        }
+      } else {
+        p2p.disconnectAllPeers();
+        this.log(UI.success("Disconnected from all peers"));
+      }
+      callback();
+    });
+}
+
 module.exports = {
   openCommand,
   connectCommand,
   peersCommand,
   statusCommand,
   syncCommand,
+  closeCommand,
+  disconnectCommand,
 };

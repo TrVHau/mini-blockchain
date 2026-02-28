@@ -6,6 +6,9 @@ const MessageHandler = require("./MessageHandler.js");
 const SyncManager = require("./SyncManager.js");
 const BLOCKCHAIN_CONSTANTS = require("../config/constants.js");
 const Validator = require("../util/Validator.js");
+const { Logger } = require("../util/Logger.js");
+
+const logger = new Logger("P2P");
 
 class P2P {
   constructor(blockchain) {
@@ -39,12 +42,12 @@ class P2P {
         const data = Messages.parse(message);
         this.handleMessage(socket, data);
       } catch (err) {
-        console.error("Error processing message:", err.message);
+        logger.error("Error processing message:", err.message);
       }
     });
 
     socket.on("error", (err) => {
-      console.error("Socket error:", err.message);
+      logger.error("Socket error:", err.message);
     });
 
     socket.on("close", () => {
@@ -101,10 +104,6 @@ class P2P {
         this._handleReceiveBlocks(socket, data.data);
         return true;
 
-      case MESSAGE_TYPE.RECEIVE_PEERS:
-        this._handleReceivePeers(data.data);
-        return true;
-
       default:
         return false;
     }
@@ -114,7 +113,7 @@ class P2P {
    * Xử lý handshake từ node mới kết nối
    */
   _handleHandshake(socket, peerInfo) {
-    console.log(
+    logger.info(
       `Handshake received from peer (height: ${peerInfo.chainHeight})`,
     );
 
@@ -137,7 +136,7 @@ class P2P {
    * Xử lý handshake acknowledgement
    */
   _handleHandshakeAck(socket, peerInfo) {
-    console.log(
+    logger.info(
       `Handshake ACK received (peer height: ${peerInfo.chainHeight})`,
     );
 
@@ -156,7 +155,7 @@ class P2P {
    */
   _handleRequestBlocksFrom(socket, data) {
     const { fromIndex } = data;
-    console.log(`Peer requesting blocks from index ${fromIndex}`);
+    logger.info(`Peer requesting blocks from index ${fromIndex}`);
 
     const result = this.syncManager.getBlocksFrom(fromIndex);
     const message = Messages.receiveBlocks(
@@ -166,7 +165,7 @@ class P2P {
     );
     this.peerManager.sendMessage(socket, message);
 
-    console.log(`Sent ${result.blocks.length} blocks to peer`);
+    logger.info(`Sent ${result.blocks.length} blocks to peer`);
   }
 
   /**
@@ -182,15 +181,6 @@ class P2P {
     );
   }
 
-  /**
-   * Xử lý danh sách peers nhận được
-   */
-  _handleReceivePeers(data) {
-    const { peers } = data;
-    console.log(`Received ${peers.length} peer addresses`);
-    // TODO: Auto-connect to new peers
-  }
-
   connectToPeer(host, port) {
     const address = `ws://${host}:${port}`;
 
@@ -200,7 +190,7 @@ class P2P {
       port === this.serverPort &&
       Validator.isLocalhost(host)
     ) {
-      console.error(
+      logger.error(
         `Cannot connect to yourself! Server is running on port ${this.serverPort}`,
       );
       return;
@@ -208,11 +198,11 @@ class P2P {
 
     // Kiểm tra đã kết nối chưa
     if (this.peerManager.isAlreadyConnected(address)) {
-      console.error(`Already connected to ${address}`);
+      logger.error(`Already connected to ${address}`);
       return;
     }
 
-    console.log(`Connecting to ${address}...`);
+    logger.info(`Connecting to ${address}...`);
 
     try {
       const socket = new WebSocket(address, {
@@ -222,7 +212,8 @@ class P2P {
       socket.on("open", () => {
         socket._peerAddress = address;
         this.peerManager.addPeer(socket);
-        console.log(`Connected to peer: ${address}`);
+
+        logger.success(`Connected to peer: ${address}`);
 
         // Gửi handshake thay vì request chain trực tiếp
         const nodeInfo = this.syncManager.getNodeInfo();
@@ -230,23 +221,23 @@ class P2P {
       });
 
       socket.on("error", (err) => {
-        console.error(`Failed to connect to ${address}:`, err.message);
+        logger.error(`Failed to connect to ${address}: ${err.message}`);
       });
 
       socket.on("close", (code) => {
-        console.log(`Connection to ${address} closed (code: ${code})`);
+        logger.info(`Connection to ${address} closed (code: ${code})`);
       });
 
       this.setUpPeer(socket);
     } catch (err) {
-      console.error(`Error creating WebSocket:`, err.message);
+      logger.error(`Error creating WebSocket: ${err.message}`);
     }
   }
 
   startServer(port) {
     try {
       if (this.server) {
-        console.log("Server already running. Close it first.");
+        logger.warn("Server already running. Close it first.");
         return;
       }
 
@@ -257,7 +248,8 @@ class P2P {
         socket._peerAddress =
           req.socket.remoteAddress + ":" + req.socket.remotePort;
         this.peerManager.addPeer(socket);
-        console.log(`New peer connected from ${socket._peerAddress}`);
+
+        logger.info(`New peer connected from ${socket._peerAddress}`);
         this.setUpPeer(socket);
 
         // Server cũng gửi handshake cho client mới
@@ -267,17 +259,17 @@ class P2P {
 
       this.server.on("error", (err) => {
         if (err.code === "EADDRINUSE") {
-          console.error(`Port ${port} is already in use!`);
+          logger.error(`Port ${port} is already in use!`);
         } else {
-          console.error(`Server error:`, err.message);
+          logger.error(`Server error: ${err.message}`);
         }
         this.server = null;
         this.serverPort = null;
       });
 
-      console.log(`P2P server running on port ${port}`);
+      logger.success(`P2P server running on port ${port}`);
     } catch (err) {
-      console.error(`Failed to start server:`, err.message);
+      logger.error(`Failed to start server: ${err.message}`);
       this.server = null;
       this.serverPort = null;
     }
@@ -286,17 +278,17 @@ class P2P {
   closeServer() {
     try {
       if (this.server) {
-        console.log(`Closing P2P server on port ${this.serverPort}...`);
+        logger.info(`Closing P2P server on port ${this.serverPort}...`);
         this.server.close(() => {
-          console.log("P2P server closed successfully.");
+          logger.success("P2P server closed successfully.");
         });
         this.server = null;
         this.serverPort = null;
       } else {
-        console.log("No server is running.");
+        logger.info("No server is running.");
       }
     } catch (err) {
-      console.error(`Error closing server: ${err.message}`);
+      logger.error(`Error closing server: ${err.message}`);
     }
   }
 
@@ -304,7 +296,7 @@ class P2P {
   broadcastNewBlock(block) {
     try {
       if (this.peers.length === 0) {
-        console.log("No peers connected to broadcast to.");
+        logger.debug("No peers connected to broadcast to.");
         return;
       }
 
@@ -316,9 +308,9 @@ class P2P {
           sent++;
         }
       });
-      console.log(`Block broadcast to ${sent} peer(s)`);
+      logger.info(`Block broadcast to ${sent} peer(s)`);
     } catch (err) {
-      console.error("Error broadcasting block:", err.message);
+      logger.error("Error broadcasting block:", err.message);
     }
   }
 
@@ -330,17 +322,17 @@ class P2P {
       const relayed = this.peerManager.broadcastExcept(message, fromSocket);
 
       if (relayed > 0) {
-        console.log(`  Block #${block.index} relayed to ${relayed} peer(s)`);
+        logger.debug(`Block #${block.index} relayed to ${relayed} peer(s)`);
       }
     } catch (err) {
-      console.error("Error relaying block:", err.message);
+      logger.error("Error relaying block:", err.message);
     }
   }
 
   broadcastTransaction(transaction) {
     try {
       if (this.peers.length === 0) {
-        console.log("No peers connected to broadcast to.");
+        logger.debug("No peers connected to broadcast to.");
         return;
       }
 
@@ -352,9 +344,9 @@ class P2P {
           sent++;
         }
       });
-      console.log(`Transaction broadcast to ${sent} peer(s)`);
+      logger.info(`Transaction broadcast to ${sent} peer(s)`);
     } catch (err) {
-      console.error("Error broadcasting transaction:", err.message);
+      logger.error("Error broadcasting transaction:", err.message);
     }
   }
 
@@ -366,10 +358,10 @@ class P2P {
       const relayed = this.peerManager.broadcastExcept(message, fromSocket);
 
       if (relayed > 0) {
-        console.log(`  Transaction relayed to ${relayed} peer(s)`);
+        logger.debug(`Transaction relayed to ${relayed} peer(s)`);
       }
     } catch (err) {
-      console.error("Error relaying transaction:", err.message);
+      logger.error("Error relaying transaction:", err.message);
     }
   }
 
@@ -380,10 +372,10 @@ class P2P {
 
   syncBlockchain() {
     try {
-      console.log("Requesting blockchain from peers...");
+      logger.info("Requesting blockchain from peers...");
       this.requestBlockchain();
     } catch (err) {
-      console.error("Error syncing blockchain:", err.message);
+      logger.error("Error syncing blockchain:", err.message);
     }
   }
 
@@ -398,14 +390,14 @@ class P2P {
   // Manual sync trigger (for CLI command)
   triggerSync() {
     if (this.peers.length === 0) {
-      console.log("No peers connected to sync with.");
+      logger.warn("No peers connected to sync with.");
       return false;
     }
 
     // Gửi handshake cho tất cả peers để trigger sync
     const nodeInfo = this.syncManager.getNodeInfo();
     this.peerManager.broadcast(Messages.handshake(nodeInfo));
-    console.log("Sync request sent to all peers");
+    logger.info("Sync request sent to all peers");
     return true;
   }
 
