@@ -63,12 +63,21 @@ pub fn transaction(tx: &Transaction) -> String {
     wrap(message_type::TRANSACTION, json!({ "transaction": tx }))
 }
 
-pub fn handshake(node_info: &NodeInfo) -> String {
-    wrap(message_type::HANDSHAKE, json!(node_info))
+pub fn handshake(node_info: &NodeInfo, listen_port: Option<u16>) -> String {
+    let mut data = serde_json::to_value(node_info).unwrap_or_default();
+    if let Some(p) = listen_port {
+        data["listenPort"] = serde_json::json!(p);
+    }
+    wrap(message_type::HANDSHAKE, data)
 }
 
-pub fn handshake_ack(node_info: &NodeInfo) -> String {
-    wrap(message_type::HANDSHAKE_ACK, json!(node_info))
+/// Handshake ACK kèm danh sách peer mình đang kết nối (peer discovery:
+/// node nhận tự connect tới các addr chưa biết)
+pub fn handshake_ack(node_info: &NodeInfo, peer_addrs: &[String]) -> String {
+    wrap(
+        message_type::HANDSHAKE_ACK,
+        json!({ "chainHeight": node_info.chain_height, "latestBlockHash": node_info.latest_block_hash, "mempoolSize": node_info.mempool_size, "timestamp": node_info.timestamp, "peers": peer_addrs }),
+    )
 }
 
 /// Parse message -> (type, data). Data rỗng nếu message không có data.

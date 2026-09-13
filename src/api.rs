@@ -260,7 +260,7 @@ async fn create_transaction(
     if let Err(e) = tx.sign(&sk, &pk) {
         return err(StatusCode::INTERNAL_SERVER_ERROR, &e);
     }
-    if let Err(e) = n.blockchain.add_transaction(&tx) {
+    if let Err(e) = n.add_transaction(&tx) {
         return err(StatusCode::BAD_REQUEST, &e);
     }
 

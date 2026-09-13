@@ -70,7 +70,7 @@ pub(super) async fn cmd_send(node: &NodeHandle, p2p: &Arc<P2P>, args: &[&str]) {
 
     {
         let mut n = node.lock().await;
-        if let Err(e) = n.blockchain.add_transaction(&tx) {
+        if let Err(e) = n.add_transaction(&tx) {
             println!("{}", util::error(&e));
             return;
         }

@@ -82,10 +82,15 @@ pub async fn run(node: NodeHandle, p2p: Arc<P2P>, options: &Options) {
         }
     }
 
-    // Cleanup
+    // Cleanup (graceful shutdown): dừng automine TRƯỚC khi save — tránh task
+    // nền ghi đè state sau lúc thoát
     {
-        let n = node.lock().await;
-        n.storage.save_blockchain(&n.blockchain.chain);
+        let mut n = node.lock().await;
+        if let Some(task) = n.auto_mine_task.take() {
+            task.abort();
+            n.auto_mine = None;
+        }
+        n.save_state();
     }
     p2p.close();
     println!("{}", util::success("Goodbye!"));

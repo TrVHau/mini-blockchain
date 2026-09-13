@@ -34,7 +34,7 @@ pub const GENESIS_PREVIOUS_HASH: &str = "0";
 
 // Network
 pub const WEBSOCKET_HANDSHAKE_TIMEOUT: u64 = 5_000;
-#[allow(dead_code)] // port đủ constants từ constants.js, dùng dần
+/// Giới hạn số peer kết nối (peer discovery tự connect đến mức này)
 pub const MAX_PEERS: usize = 50;
 
 // Sync (SyncManager.js)

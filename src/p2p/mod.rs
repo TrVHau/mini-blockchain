@@ -74,7 +74,13 @@ impl P2P {
                 match tokio_tungstenite::accept_async(stream).await {
                     Ok(ws) => {
                         println!("[P2P] New peer connected from {addr}");
-                        tokio::spawn(connection_task(node.clone(), peers.clone(), addr, ws));
+                        tokio::spawn(connection_task(
+                            node.clone(),
+                            peers.clone(),
+                            addr,
+                            ws,
+                            Some(actual_port),
+                        ));
                     }
                     Err(e) => eprintln!("[P2P] ✗ WebSocket handshake failed: {e}"),
                 }
@@ -104,16 +110,18 @@ impl P2P {
             return;
         }
 
-        let address = format!("ws://{host}:{port}");
+        // Key PeerMap chuẩn hoá host:port (không ws://) — khớp canonical key
+        // sau khi peer handshake rekey, tránh duplicate connection
+        let address = format!("{host}:{port}");
         if self.is_connected(&address) {
             eprintln!("[P2P] ✗ Already connected to {address}");
             return;
         }
 
-        println!("[P2P] Connecting to {address}...");
+        println!("[P2P] Connecting to ws://{address}...");
         // ponytail: handshake timeout không đặt được trực tiếp trên connect_async;
         // tự quản lý bằng timeout quanh toàn bộ connect
-        let connect = tokio_tungstenite::connect_async(address.clone());
+        let connect = tokio_tungstenite::connect_async(format!("ws://{address}"));
         match tokio::time::timeout(
             std::time::Duration::from_millis(config::WEBSOCKET_HANDSHAKE_TIMEOUT),
             connect,
@@ -124,7 +132,8 @@ impl P2P {
                 println!("[P2P] ✓ Connected to peer: {address}");
                 let node = self.node.clone();
                 let peers = self.peers.clone();
-                tokio::spawn(connection_task(node, peers, address, ws));
+                let listen_port = *self.server_port.lock().unwrap();
+                tokio::spawn(connection_task(node, peers, address, ws, listen_port));
             }
             Ok(Err(e)) => eprintln!("[P2P] ✗ Failed to connect to {address}: {e}"),
             Err(_) => eprintln!("[P2P] ✗ Failed to connect to {address}: handshake timeout"),
@@ -171,7 +180,8 @@ impl P2P {
             return false;
         }
         let info = self.node.lock().await.get_node_info();
-        self.broadcast(&messages::handshake(&info));
+        let listen_port = *self.server_port.lock().unwrap();
+        self.broadcast(&messages::handshake(&info, listen_port));
         println!("[P2P] Sync request sent to all peers");
         true
     }
@@ -187,6 +197,21 @@ pub fn send_to(peers: &PeerMap, addr: &str, msg: &str) {
     if let Some(tx) = peers.lock().unwrap().get(addr) {
         let _ = tx.send(msg.to_string());
     }
+}
+
+/// Peer discovery: connect tới một peer mới tìm thấy qua handshake.
+/// Tách khỏi handler.rs vì connection_task ↔ handle_message đệ quy async —
+/// spawn từ đây phá được chuỗi Send không chứng minh được.
+pub fn connect_discovered(node: NodeHandle, peers: PeerMap, addr: String) {
+    tokio::spawn(async move {
+        match tokio_tungstenite::connect_async(format!("ws://{addr}")).await {
+            Ok((ws, _)) => {
+                println!("[P2P] ✓ Auto-connected to discovered peer: {addr}");
+                handler::connection_task(node, peers, addr, ws, None).await;
+            }
+            Err(e) => eprintln!("[P2P] ✗ Failed to connect to discovered peer {addr}: {e}"),
+        }
+    });
 }
 
 // Message handlers nằm ở handler.rs

@@ -20,20 +20,25 @@ use crate::p2p::{broadcast, relay_except, send_to, PeerMap};
 pub(super) async fn connection_task<S>(
     node: NodeHandle,
     peers: PeerMap,
-    addr: String,
+    mut addr: String,
     ws: WebSocketStream<S>,
+    listen_port: Option<u16>,
 ) where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
     let (mut sink, mut stream) = ws.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+
+    // Key PeerMap ban đầu là ephemeral addr; sau khi peer gửi handshake
+    // (quảng bá listenPort) handle_message rekey sang host:listenPort
+    // và trả về canonical addr — connection này cập nhật theo.
     peers.lock().unwrap().insert(addr.clone(), tx);
 
     // Gửi handshake (JS: cả client lẫn server đều gửi khi kết nối)
     let info = node.lock().await.get_node_info();
     if sink
         .send(tokio_tungstenite::tungstenite::Message::Text(
-            messages::handshake(&info),
+            messages::handshake(&info, listen_port),
         ))
         .await
         .is_err()
@@ -54,7 +59,11 @@ pub(super) async fn connection_task<S>(
             },
             incoming = stream.next() => match incoming {
                 Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text))) => {
-                    handle_message(&node, &peers, &addr, &text).await;
+                    // handle_message có thể rekey PeerMap (peer quảng bá listenPort)
+                    // -> cập nhật addr canonical cho các message sau trên connection này
+                    if let Some(new_addr) = handle_message(&node, &peers, &addr, &text).await {
+                        addr = new_addr;
+                    }
                 }
                 Some(Ok(_)) => {} // ping/pong/binary: bỏ qua
                 Some(Err(e)) => {
@@ -73,25 +82,94 @@ pub(super) async fn connection_task<S>(
     );
 }
 
-/// Dispatch message từ peer (port MessageHandler.handle + P2P._handleSyncMessage)
-async fn handle_message(node: &NodeHandle, peers: &PeerMap, from_addr: &str, text: &str) {
+/// Dispatch message từ peer (port MessageHandler.handle + P2P._handleSyncMessage).
+/// Trả về Some(canonical_addr) nếu handshake của peer yêu cầu rekey PeerMap
+/// (peer quảng bá listenPort — key ổn định thay vì ephemeral port).
+async fn handle_message(
+    node: &NodeHandle,
+    peers: &PeerMap,
+    from_addr: &str,
+    text: &str,
+) -> Option<String> {
     let Ok((msg_type, data)) = messages::parse(text) else {
         eprintln!("[P2P] ✗ Error processing message from {from_addr}");
-        return;
+        return None;
+    };
+
+    // Rekey khi peer quảng bá listen port qua HANDSHAKE:
+    // ephemeral addr -> host:listenPort (địa chỉ danh tính, discovery connect lại được)
+    let canonical: Option<String>;
+    let from_addr_owned: String;
+    let from_addr: &str = if msg_type == "HANDSHAKE" {
+        match data["listenPort"].as_u64() {
+            Some(port) => {
+                let host = from_addr
+                    .rsplit_once(':')
+                    .map(|(h, _)| h)
+                    .unwrap_or("127.0.0.1");
+                let new_addr = format!("{host}:{port}");
+                if new_addr != from_addr {
+                    let mut map = peers.lock().unwrap();
+                    // Dọn key cũ trỏ connection này: ephemeral addr (inbound)
+                    // hoặc ws://host:port (outbound), rồi rekey canonical
+                    let tx = map
+                        .remove(from_addr)
+                        .or_else(|| map.remove(&format!("ws://{new_addr}")));
+                    if let Some(tx) = tx {
+                        map.insert(new_addr.clone(), tx);
+                    }
+                }
+                canonical = Some(new_addr.clone());
+                from_addr_owned = new_addr;
+                from_addr_owned.as_str()
+            }
+            None => {
+                canonical = None;
+                from_addr
+            }
+        }
+    } else {
+        canonical = None;
+        from_addr
     };
 
     match msg_type.as_str() {
         messages::message_type::HANDSHAKE => {
             let peer_height = data["chainHeight"].as_u64().unwrap_or(0) as usize;
             println!("[P2P] Handshake received from peer (height: {peer_height})");
+            let peer_addrs: Vec<String> = peers.lock().unwrap().keys().cloned().collect();
             let my_info = node.lock().await.get_node_info();
-            send_to(peers, from_addr, &messages::handshake_ack(&my_info));
+            // Trừ chính node vừa gửi handshake để không connect ngược lại nó
+            let peer_addrs: Vec<String> =
+                peer_addrs.into_iter().filter(|a| a != from_addr).collect();
+            send_to(
+                peers,
+                from_addr,
+                &messages::handshake_ack(&my_info, &peer_addrs),
+            );
             sync::start_sync(node, peers, from_addr, peer_height).await;
         }
         messages::message_type::HANDSHAKE_ACK => {
             let peer_height = data["chainHeight"].as_u64().unwrap_or(0) as usize;
             println!("[P2P] Handshake ACK received (peer height: {peer_height})");
             sync::start_sync(node, peers, from_addr, peer_height).await;
+            // Peer discovery: connect tới các peer của peer (không có sẵn + còn slot)
+            if let Some(addrs) = data["peers"].as_array() {
+                let known: Vec<String> = peers.lock().unwrap().keys().cloned().collect();
+                if known.len() < config::MAX_PEERS {
+                    for addr in addrs.iter().filter_map(|v| v.as_str()) {
+                        if addr == from_addr || known.iter().any(|k| k == addr) {
+                            continue;
+                        }
+                        println!("[P2P] Discovered new peer via handshake: {addr}");
+                        crate::p2p::connect_discovered(
+                            node.clone(),
+                            peers.clone(),
+                            addr.to_string(),
+                        );
+                    }
+                }
+            }
         }
         messages::message_type::REQUEST_BLOCKS_FROM => {
             let from_index = data["fromIndex"].as_u64().unwrap_or(0) as usize;
@@ -115,7 +193,7 @@ async fn handle_message(node: &NodeHandle, peers: &PeerMap, from_addr: &str, tex
         messages::message_type::RECEIVE_BLOCKS => {
             let Ok(blocks) = serde_json::from_value::<Vec<Block>>(data["blocks"].clone()) else {
                 eprintln!("[P2P] ✗ Invalid RECEIVE_BLOCKS message");
-                return;
+                return canonical;
             };
             let total_height = data["totalHeight"].as_u64().unwrap_or(0) as usize;
             sync::handle_receive_blocks(node, peers, from_addr, blocks, total_height).await;
@@ -123,7 +201,7 @@ async fn handle_message(node: &NodeHandle, peers: &PeerMap, from_addr: &str, tex
         messages::message_type::NEW_BLOCK => {
             let Ok(block) = serde_json::from_value::<Block>(data["block"].clone()) else {
                 eprintln!("[P2P] ✗ Invalid NEW_BLOCK message: missing block data");
-                return;
+                return canonical;
             };
             handle_new_block(node, peers, from_addr, block).await;
         }
@@ -135,7 +213,7 @@ async fn handle_message(node: &NodeHandle, peers: &PeerMap, from_addr: &str, tex
         messages::message_type::RECEIVE_CHAIN => {
             let Ok(chain) = serde_json::from_value::<Vec<Block>>(data["chain"].clone()) else {
                 eprintln!("[P2P] ✗ Invalid RECEIVE_CHAIN message: missing chain data");
-                return;
+                return canonical;
             };
             sync::handle_receive_chain(node, chain).await;
         }
@@ -146,12 +224,13 @@ async fn handle_message(node: &NodeHandle, peers: &PeerMap, from_addr: &str, tex
         messages::message_type::TRANSACTION => {
             let Ok(tx) = serde_json::from_value::<Transaction>(data["transaction"].clone()) else {
                 eprintln!("[P2P] ✗ Invalid TRANSACTION message: missing transaction data");
-                return;
+                return canonical;
             };
             handle_transaction(node, peers, from_addr, tx).await;
         }
         other => println!("[P2P] Unhandled message type: {other}"),
     }
+    canonical
 }
 
 /// Port BlockHandler.handleNewBlock
@@ -197,7 +276,7 @@ async fn handle_new_block(node: &NodeHandle, peers: &PeerMap, from_addr: &str, b
 async fn handle_transaction(node: &NodeHandle, peers: &PeerMap, from_addr: &str, tx: Transaction) {
     let accepted = {
         let mut n = node.lock().await;
-        match n.blockchain.add_transaction(&tx) {
+        match n.add_transaction(&tx) {
             Ok(_) => {
                 println!("[P2P] Transaction added to mempool from peer");
                 true

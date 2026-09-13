@@ -7,6 +7,7 @@ use serde::Serialize;
 
 use crate::blockchain::block::Block;
 use crate::blockchain::chain::BlockChain;
+use crate::blockchain::transaction::Transaction;
 use crate::p2p::sync::SyncState;
 use crate::storage::Storage;
 use crate::util;
@@ -54,6 +55,17 @@ impl Node {
                     blockchain = fresh;
                     println!("Loaded {} blocks from storage", saved.len());
                 }
+            }
+        }
+
+        // Load mempool từ storage nếu có — tx pending sống sót qua restart
+        if let Some(mempool) = storage.load_mempool() {
+            if !mempool.is_empty() {
+                println!(
+                    "Loaded {} pending transaction(s) from storage",
+                    mempool.len()
+                );
+                blockchain.mempool = mempool;
             }
         }
 
@@ -108,7 +120,7 @@ impl Node {
     /// Nhận block từ mạng + auto-save khi thành công
     pub fn receive_block(&mut self, block: &Block) -> bool {
         if self.blockchain.receive_block(block) {
-            self.storage.save_blockchain(&self.blockchain.chain);
+            self.save_state();
             true
         } else {
             false
@@ -118,7 +130,7 @@ impl Node {
     /// Nhận chain từ mạng + auto-save khi thành công
     pub fn receive_chain(&mut self, chain: &[Block]) -> bool {
         if self.blockchain.receive_chain(chain) {
-            self.storage.save_blockchain(&self.blockchain.chain);
+            self.save_state();
             true
         } else {
             false
@@ -128,7 +140,20 @@ impl Node {
     /// Reset về genesis + save (lệnh `reset`)
     pub fn reset(&mut self) {
         self.blockchain.reset();
+        self.save_state();
+    }
+
+    /// Lưu chain + mempool xuống disk
+    pub fn save_state(&self) {
         self.storage.save_blockchain(&self.blockchain.chain);
+        self.storage.save_mempool(&self.blockchain.mempool);
+    }
+
+    /// Thêm tx vào mempool (validate) + auto-save mempool
+    pub fn add_transaction(&mut self, tx: &Transaction) -> Result<(), String> {
+        self.blockchain.add_transaction(tx)?;
+        self.storage.save_mempool(&self.blockchain.mempool);
+        Ok(())
     }
 }
 
@@ -150,7 +175,7 @@ pub async fn mine_block(node: &NodeHandle, miner_address: &str) -> Option<Block>
 
     let mut n = node.lock().await;
     if n.blockchain.apply_mined_block(&mined) {
-        n.storage.save_blockchain(&n.blockchain.chain);
+        n.save_state();
         Some(mined)
     } else {
         None

@@ -168,3 +168,48 @@ async fn transaction_relay_then_replay_rejected() {
         "replay tx đã confirm qua block từ mạng phải bị từ chối (spent_txids)"
     );
 }
+
+#[tokio::test]
+async fn peer_discovery_via_handshake() {
+    // A-B và A-C kết nối; handshake ACK của A liệt kê peers -> B tự connect C
+    let a = temp_node("a");
+    let b = temp_node("b");
+    let c = temp_node("c");
+    let p2p_a = P2P::new(a.clone());
+    let p2p_b = P2P::new(b.clone());
+    let p2p_c = P2P::new(c.clone());
+
+    p2p_a.start_server(0).await;
+    p2p_b.start_server(0).await;
+    p2p_c.start_server(0).await;
+    let port_a = p2p_a.server_port.lock().unwrap().expect("server A");
+    let port_b = p2p_b.server_port.lock().unwrap().expect("server B");
+    let port_c = p2p_c.server_port.lock().unwrap().expect("server C");
+
+    // B và C đều connect tới A
+    p2p_b.connect_to_peer("127.0.0.1", port_a).await;
+    p2p_c.connect_to_peer("127.0.0.1", port_a).await;
+    let ok = wait_for(Duration::from_secs(10), || async {
+        p2p_a.get_peers().len() == 2
+    })
+    .await;
+    assert!(ok, "A phải có 2 peer (B và C)");
+
+    // Peer discovery: B và C phải tự tìm thấy nhau qua handshake ACK của A
+    let ok = wait_for(Duration::from_secs(15), || async {
+        p2p_b.is_connected(&format!("127.0.0.1:{port_c}"))
+            || p2p_c.is_connected(&format!("127.0.0.1:{port_b}"))
+    })
+    .await;
+    assert!(ok, "B và C phải tự kết nối với nhau qua peer discovery");
+
+    // Block mined ở B relay đến C (qua A hoặc trực tiếp — mesh đã hình thành)
+    let miner = "ff".repeat(32);
+    let block = node::mine_block(&b, &miner).await.expect("mine");
+    p2p_b.broadcast(&messages::new_block(&block));
+    let ok = wait_for(Duration::from_secs(10), || async {
+        chain_len(&c).await >= 2
+    })
+    .await;
+    assert!(ok, "C phải nhận block của B qua mesh");
+}
