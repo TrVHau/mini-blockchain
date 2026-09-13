@@ -223,6 +223,57 @@ fn block_without_coinbase_rejected() {
 }
 
 #[test]
+fn tx_from_mismatched_public_key_rejected() {
+    // Kẻ tấn công ký tx "từ" địa chỉ nạn nhân bằng key của chính mình —
+    // chữ ký verify được (không khớp pk nào của nạn nhân cả) nhưng from
+    // không phải địa chỉ suy từ pk đã ký -> phải bị từ chối
+    let (_, _, victim) = miner();
+    let (evil_sk, evil_pk, evil_addr) = miner();
+    let mut bc = BlockChain::with_difficulty(2);
+    bc.mine_block(&victim);
+
+    let mut tx = Transaction::new(&victim, &evil_addr, 15_000_000, 0);
+    tx.sign(&evil_sk, &evil_pk).unwrap();
+    assert!(
+        bc.add_transaction(&tx).is_err(),
+        "tx ghi nợ địa chỉ người khác phải bị từ chối"
+    );
+
+    // Block chứa tx như vậy cũng bị từ chối ở receive path
+    let mut evil_block = bc.prepare_block(&evil_addr).0;
+    evil_block.transactions = vec![tx];
+    evil_block.mine_block(2, &evil_addr);
+    assert!(
+        !bc.receive_block(&evil_block),
+        "block chứa tx from-lệch-pk phải bị từ chối"
+    );
+}
+
+#[test]
+fn tx_without_txid_rejected() {
+    // Tx hợp lệ nhưng bị strip txid -> không được vào mempool (nếu vào được,
+    // prepare_block sẽ chọn nó lại mỗi block -> debit lặp + node khác từ chối)
+    let (sk, pk, addr) = miner();
+    let mut bc = BlockChain::with_difficulty(1);
+    bc.mine_block(&addr);
+    let mut tx = signed_tx(&sk, &pk, &addr, &"b".repeat(64), 1_000_000, 0);
+    tx.txid = None;
+    assert!(bc.add_transaction(&tx).is_err());
+}
+
+#[test]
+fn fake_coinbase_type_tx_rejected() {
+    // tx_type = "COINBASE" tự khai -> bypass chữ ký + số dư nếu được chấp nhận
+    let (_, _, victim) = miner();
+    let evil = "e".repeat(64);
+    let mut bc = BlockChain::with_difficulty(1);
+    bc.mine_block(&victim);
+    let mut tx = Transaction::new(&evil, &evil, 1_000_000_000, 0);
+    tx.tx_type = crate::blockchain::transaction::TYPE_COINBASE.to_string();
+    assert!(bc.add_transaction(&tx).is_err());
+}
+
+#[test]
 fn receive_block_validates_linkage() {
     let (_, _, miner_addr) = miner();
     let mut bc1 = BlockChain::with_difficulty(2);
@@ -439,3 +490,4 @@ fn receive_block_rejects_unsigned_tx() {
         "block chứa tx chữ ký không hợp lệ phải bị từ chối"
     );
 }
+

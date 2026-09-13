@@ -129,15 +129,28 @@ mod tests {
 
         assert!(storage.load_mempool().is_none());
 
-        let tx = Transaction::new(&"a".repeat(64), &"b".repeat(64), 1_000_000, 0);
-        assert!(storage.save_mempool(std::slice::from_ref(&tx)));
-
+        // Tx thô (không ký) — storage là dumb serde, vẫn save/load được
+        let raw = Transaction::new(&"a".repeat(64), &"b".repeat(64), 1_000_000, 0);
+        assert!(storage.save_mempool(std::slice::from_ref(&raw)));
         let loaded = storage.load_mempool().expect("load sau khi save");
         assert_eq!(loaded.len(), 1);
-        assert_eq!(loaded[0].txid, tx.txid);
         assert_eq!(loaded[0].amount, 1_000_000);
 
-        // Node restart: load mempool vào blockchain
+        // Node restart: tx không hợp lệ bị re-validate loại bỏ
+        let node = crate::node::Node::with_base_dir(&dir, "n1");
+        assert_eq!(node.blockchain.mempool.len(), 0);
+
+        // Tx đã ký + đủ số dư: sống sót qua restart
+        let (sk, pk) = crypto::generate_keypair();
+        let from = crypto::address_from_public_hex(&pk).unwrap();
+        {
+            let mut n1 = crate::node::Node::with_base_dir(&dir, "n1");
+            n1.blockchain.mine_block(&from);
+            n1.save_state();
+            let mut tx = Transaction::new(&from, &"b".repeat(64), 1_000_000, 0);
+            tx.sign(&sk, &pk).unwrap();
+            n1.add_transaction(&tx).unwrap();
+        }
         let node = crate::node::Node::with_base_dir(&dir, "n1");
         assert_eq!(node.blockchain.mempool.len(), 1);
 

@@ -320,15 +320,15 @@ impl BlockChain {
         }
         new_block.transactions = selected;
 
-        // Xóa các tx đã chọn khỏi mempool
+        // Xóa các tx đã chọn khỏi mempool (tx không txid không thể vào mempool
+        // — validate_transaction chặn từ cửa)
         let selected_keys: HashSet<String> = new_block
             .transactions
             .iter()
             .map(|tx| tx.txid.clone().unwrap_or_default())
             .collect();
-        self.mempool.retain(|tx| {
-            !selected_keys.contains(tx.txid.as_deref().unwrap_or("")) || tx.txid.is_none()
-        });
+        self.mempool
+            .retain(|tx| !selected_keys.contains(tx.txid.as_deref().unwrap_or("")));
 
         (new_block, self.difficulty)
     }

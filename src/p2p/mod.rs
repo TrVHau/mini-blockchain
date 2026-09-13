@@ -30,6 +30,16 @@ use handler::connection_task;
 pub struct PeerConn {
     pub tx: mpsc::UnboundedSender<String>,
     pub canonical: bool,
+    /// ID của connection sở hữu entry — so khớp khi dọn key. Connection task
+    /// KHÔNG giữ sender của chính mình (remove khỏi PeerMap = đóng channel =
+    /// task tự thoát), nên cần id để biết entry còn thuộc về ai.
+    pub id: u64,
+}
+
+static NEXT_CONN_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+pub fn next_conn_id() -> u64 {
+    NEXT_CONN_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 impl PeerConn {
@@ -40,6 +50,7 @@ impl PeerConn {
         Self {
             tx,
             canonical: false,
+            id: next_conn_id(),
         }
     }
 }
@@ -176,7 +187,9 @@ impl P2P {
         self.peers.lock().unwrap().keys().cloned().collect()
     }
 
-    /// Ngắt kết nối peer theo index (1-based như JS)
+    /// Ngắt kết nối peer theo index (1-based như JS). Remove entry khỏi
+    /// PeerMap = đóng channel (connection task không giữ sender của chính
+    /// mình) = task thoát = WebSocket đóng thật sự.
     pub fn disconnect_peer(&self, index: usize) -> Result<(), String> {
         let mut peers = self.peers.lock().unwrap();
         if index == 0 || index > peers.len() {
@@ -234,12 +247,13 @@ pub fn connect_discovered(
     // Reserve key ngay để PEERS thứ hai (race với connection chưa kịp insert)
     // không connect đôi tới cùng peer. Placeholder tx đóng sẵn — nếu connect
     // fail thì remove key.
+    let placeholder = PeerConn::reserving();
     {
         let mut map = peers.lock().unwrap();
         if map.contains_key(&addr) {
             return;
         }
-        map.insert(addr.clone(), PeerConn::reserving());
+        map.insert(addr.clone(), placeholder.clone());
     }
     tokio::spawn(async move {
         match tokio_tungstenite::connect_async(format!("ws://{addr}")).await {
@@ -249,10 +263,13 @@ pub fn connect_discovered(
             }
             Err(e) => {
                 eprintln!("[P2P] ✗ Failed to connect to discovered peer {addr}: {e}");
-                // Dọn key placeholder nếu connect fail (placeholder không thuộc
-                // connection nào — xóa khi key vẫn là reserving entry)
+                // Chỉ dọn khi key vẫn là placeholder của lần reserve này —
+                // connection khác có thể đã claim key (inbound trùng addr);
+                // xóa nhầm entry sống sẽ làm task đó mất key
                 let mut map = peers.lock().unwrap();
-                map.remove(&addr);
+                if map.get(&addr).is_some_and(|c| c.id == placeholder.id) {
+                    map.remove(&addr);
+                }
             }
         }
     });

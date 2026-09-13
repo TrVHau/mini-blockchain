@@ -4,8 +4,9 @@
 use std::collections::HashSet;
 
 use crate::blockchain::block::Block;
-use crate::blockchain::transaction::{Transaction, TYPE_COINBASE};
+use crate::blockchain::transaction::{Transaction, TYPE_TRANSFER};
 use crate::config;
+use crate::crypto;
 use crate::util;
 use crate::wallet::BalanceTracker;
 
@@ -14,6 +15,13 @@ use crate::wallet::BalanceTracker;
 pub fn validate_tx_signature(tx: &Transaction) -> bool {
     if tx.signature.is_none() || tx.sender_public_key.is_none() {
         eprintln!("[TX_VALIDATOR] ✗ Transaction missing signature or public key");
+        return false;
+    }
+    // 'from' phải là địa chỉ suy ra từ CHÍNH public key đã ký — thiếu ràng
+    // buộc này thì ai cũng ký được tx ghi nợ địa chỉ người khác
+    let pk = tx.sender_public_key.as_deref().unwrap();
+    if crypto::address_from_public_hex(pk).as_deref() != Ok(tx.from.as_str()) {
+        eprintln!("[TX_VALIDATOR] ✗ 'from' does not match sender public key");
         return false;
     }
     tx.is_valid()
@@ -106,6 +114,12 @@ pub fn validate_transaction(
     mempool: &[Transaction],
     spent_txids: &HashSet<String>,
 ) -> bool {
+    // Mempool chỉ nhận TRANSFER — coinbase do miner tự tạo khi mine,
+    // tx_type khác (kể cả "COINBASE" tự khai) là bypass chữ ký + số dư
+    if tx.tx_type != TYPE_TRANSFER {
+        eprintln!("[TX_VALIDATOR] ✗ Only TRANSFER transactions allowed in mempool");
+        return false;
+    }
     if !validate_tx_amount(tx) {
         return false;
     }
@@ -117,13 +131,19 @@ pub fn validate_transaction(
         eprintln!("[TX_VALIDATOR] ✗ Transaction too large");
         return false;
     }
-    if tx.tx_type != TYPE_COINBASE && !validate_tx_signature(tx) {
+    // Mọi đường honest đều set txid qua sign() — tx không txid là tx bị
+    // sửa đổi, và nó làm prepare_block chọn lại mãi mỗi block
+    if tx.txid.is_none() {
+        eprintln!("[TX_VALIDATOR] ✗ Transaction missing txid");
+        return false;
+    }
+    if !validate_tx_signature(tx) {
         return false;
     }
     if !validate_tx_not_duplicate(tx, mempool, spent_txids) {
         return false;
     }
-    if tx.tx_type != TYPE_COINBASE && !validate_tx_balance(tx, balances, mempool) {
+    if !validate_tx_balance(tx, balances, mempool) {
         return false;
     }
     true

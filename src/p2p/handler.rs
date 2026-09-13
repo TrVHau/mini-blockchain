@@ -27,6 +27,10 @@ enum Handled {
 /// pump outgoing channel + xử lý incoming messages.
 /// Generic vì inbound là WebSocketStream<TcpStream>,
 /// outbound là WebSocketStream<MaybeTlsStream<TcpStream>>.
+///
+/// Task move `tx` vào PeerMap entry và KHÔNG giữ sender của chính mình —
+/// khi entry bị remove (disconnect/rekey nhầm/key bị đè), channel đóng,
+/// `rx.recv()` trả None và task tự thoát. Chủ sở hữu entry nhận diện qua `id`.
 pub(super) async fn connection_task<S>(
     node: NodeHandle,
     peers: PeerMap,
@@ -39,6 +43,7 @@ pub(super) async fn connection_task<S>(
 {
     let (mut sink, mut stream) = ws.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    let id = crate::p2p::next_conn_id();
 
     // Claim key PeerMap: outbound key đã canonical — chỉ nhận nếu key trống
     // hoặc còn là reservation của connect_discovered (connection thật chưa
@@ -49,36 +54,21 @@ pub(super) async fn connection_task<S>(
         let mut map = peers.lock().unwrap();
         match map.get(&addr) {
             None => {
-                map.insert(
-                    addr.clone(),
-                    PeerConn {
-                        tx: tx.clone(),
-                        canonical: true,
-                    },
-                );
+                map.insert(addr.clone(), PeerConn { tx, canonical: true, id });
             }
             Some(existing) if !existing.tx.is_closed() && existing.canonical => {
                 println!("[P2P] Duplicate connection to {addr}, dropping this one");
                 return;
             }
             Some(_) => {
-                map.insert(
-                    addr.clone(),
-                    PeerConn {
-                        tx: tx.clone(),
-                        canonical: true,
-                    },
-                );
+                map.insert(addr.clone(), PeerConn { tx, canonical: true, id });
             }
         }
     } else {
-        peers.lock().unwrap().insert(
-            addr.clone(),
-            PeerConn {
-                tx: tx.clone(),
-                canonical: false,
-            },
-        );
+        peers
+            .lock()
+            .unwrap()
+            .insert(addr.clone(), PeerConn { tx, canonical: false, id });
     }
 
     // Gửi handshake (JS: cả client lẫn server đều gửi khi kết nối)
@@ -90,9 +80,10 @@ pub(super) async fn connection_task<S>(
         .await
         .is_err()
     {
-        remove_own(&peers, &addr, &tx);
+        remove_own(&peers, &addr, id);
         return;
     }
+
 
     loop {
         tokio::select! {
@@ -130,18 +121,18 @@ pub(super) async fn connection_task<S>(
         }
     }
 
-    remove_own(&peers, &addr, &tx);
+    remove_own(&peers, &addr, id);
     println!(
         "[P2P] Peer {addr} disconnected. Active peers: {}",
         peers.lock().unwrap().len()
     );
 }
 
-/// Xóa key PeerMap chỉ khi entry còn thuộc về connection này — tránh xóa
-/// entry của connection khác sau rekey/reconnect (key bị đè).
-pub(super) fn remove_own(peers: &PeerMap, addr: &str, tx: &mpsc::UnboundedSender<String>) {
+/// Xóa key PeerMap chỉ khi entry còn thuộc về connection này (so id) — tránh
+/// xóa entry của connection khác sau rekey/reconnect (key bị đè).
+pub(super) fn remove_own(peers: &PeerMap, addr: &str, id: u64) {
     let mut map = peers.lock().unwrap();
-    if map.get(addr).is_some_and(|c| c.tx.same_channel(tx)) {
+    if map.get(addr).is_some_and(|c| c.id == id) {
         map.remove(addr);
     }
 }
@@ -173,27 +164,35 @@ async fn handle_message(
                     .unwrap_or("127.0.0.1");
                 let new_addr = format!("{host}:{port}");
                 let mut map = peers.lock().unwrap();
-                if new_addr != from_addr && map.contains_key(&new_addr) {
+                if new_addr == from_addr {
+                    // Đã là key canonical — không có gì để rekey
+                    from_addr
+                } else if map.contains_key(&new_addr) {
                     // Connection khác đã giữ key canonical (race 2 chiều connect
                     // đồng thời, hoặc node đó đã connect tới mình trước) —
                     // connection inbound này là bản dư
                     handled = Handled::Duplicate;
                     from_addr_owned = new_addr;
                     from_addr_owned.as_str()
-                } else {
+                } else if let Some(conn) = map.remove(from_addr) {
                     // Dọn key cũ trỏ connection này (ephemeral addr inbound),
-                    // insert lại key canonical
-                    let conn = map.remove(from_addr);
+                    // insert lại key canonical — giữ id để remove_own còn
+                    // nhận ra connection này
                     map.insert(
                         new_addr.clone(),
                         PeerConn {
-                            tx: conn.expect("key from_addr phải thuộc connection này").tx,
+                            tx: conn.tx,
                             canonical: true,
+                            id: conn.id,
                         },
                     );
                     handled = Handled::Rekeyed(new_addr.clone());
                     from_addr_owned = new_addr;
                     from_addr_owned.as_str()
+                } else {
+                    // Key của connection này không còn (bị disconnect giữa
+                    // chừng) — channel đã đóng, task tự thoát sau message này
+                    from_addr
                 }
             }
             None => from_addr,

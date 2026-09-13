@@ -170,6 +170,41 @@ async fn transaction_relay_then_replay_rejected() {
 }
 
 #[tokio::test]
+async fn disconnect_closes_connection() {
+    // B connect vào A; B disconnect — phải đóng WebSocket THẬT (task của B
+    // thoát, A thấy peer biến mất). Trước đây task vẫn sống sau disconnect:
+    // message từ A vẫn được xử lý, A vẫn thấy connection.
+    let (_a, p2p_a, _b, p2p_b) = start_pair().await;
+    let ok = wait_for(Duration::from_secs(10), || async {
+        p2p_a.get_peers().len() == 1 && p2p_b.get_peers().len() == 1
+    })
+    .await;
+    assert!(ok, "A và B phải có 1 peer sau khi connect");
+
+    p2p_b.disconnect_peer(1).expect("disconnect peer index 1");
+
+    let ok = wait_for(Duration::from_secs(10), || async {
+        p2p_a.get_peers().is_empty()
+    })
+    .await;
+    assert!(ok, "A phải thấy connection đóng sau khi B disconnect");
+}
+
+#[tokio::test]
+async fn discovered_peer_connect_failure_cleans_reservation() {
+    // Connect tới port không có listener -> fail -> placeholder key phải
+    // được dọn để discovery sau này còn thử lại được
+    let a = temp_node("a");
+    let p2p_a = P2P::new(a.clone());
+    super::connect_discovered(a.clone(), p2p_a.peers.clone(), "127.0.0.1:1".to_string(), None);
+    let ok = wait_for(Duration::from_secs(10), || async {
+        p2p_a.peers.lock().unwrap().is_empty()
+    })
+    .await;
+    assert!(ok, "placeholder phải được dọn sau khi connect fail");
+}
+
+#[tokio::test]
 async fn mesh_updates_when_new_node_joins() {
     // A-B, A-C handshake xong (B-C đã biết nhau qua ACK). D join sau qua A —
     // B và C phải tự connect D nhờ PEERS broadcast event-driven từ A
