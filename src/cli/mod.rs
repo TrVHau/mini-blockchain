@@ -48,6 +48,9 @@ pub async fn run(node: NodeHandle, p2p: Arc<P2P>, options: &Options) {
         p2p.peers.clone(),
     ));
 
+    // Peer discovery mesh động: broadcast PEERS định kỳ
+    tokio::spawn(crate::p2p::announce_task(p2p.peers.clone()));
+
     // Auto-connect
     if let Some(connect) = &options.connect {
         if let Some((host, port)) = connect.split_once(':') {

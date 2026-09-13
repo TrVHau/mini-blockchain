@@ -7,13 +7,16 @@ A simple blockchain for learning purposes, viết bằng Rust.
 
 ## Tính năng
 
-- Proof of Work (SHA-256, difficulty tự điều chỉnh mỗi 10 blocks)
+- Proof of Work (SHA-256, difficulty nằm trong block header, tự điều chỉnh mỗi 10 blocks)
 - Giao dịch ECDSA secp256k1 (ký/verify, double-spend protection qua `spent_txids`)
-- Merkle tree + Merkle proof
+- Merkle tree + Merkle proof (CLI `proof` + REST API)
 - Block reward có halving (16 coins, giảm 50% mỗi 50 blocks)
 - P2P qua WebSocket: handshake, partial/full sync, relay block/transaction
+- Peer discovery mesh động: node mới join/mesh thay đổi → tự cập nhật không cần
+  reconnect (event-driven qua `PEERS` broadcast + tick 60s tự lành, full-mesh
+  tối đa 50 peer)
 - REST API (axum, bind 127.0.0.1): query chain/block/tx/balance/mempool, tạo ví, gửi tx, Merkle proof
-- Lưu trữ JSON theo node (`data/nodes/<id>/`)
+- Lưu trữ JSON theo node (`data/nodes/<id>/`) — cả chain lẫn mempool, sống sót qua restart
 - CLI REPL với đầy đủ lệnh (gõ `help`)
 
 ## Chạy
@@ -29,6 +32,9 @@ cargo run -- -n node2 -p 3001 -a -c localhost:3000
 
 # Node 3
 cargo run -- -n node3 -p 3002 -a -c localhost:3000
+
+# Node 4 — join sau: node 2, 3 tự connect lại trong ~60s (PEERS broadcast)
+cargo run -- -n node4 -p 3003 -a -c localhost:3000
 ```
 
 ## Lệnh CLI
@@ -58,8 +64,13 @@ validate                # chain hợp lệ
 ## Protocol P2P
 
 WebSocket, JSON `{type, data}`:
-`HANDSHAKE`, `HANDSHAKE_ACK`, `REQUEST_CHAIN`, `RECEIVE_CHAIN`, `REQUEST_LATEST`,
-`REQUEST_BLOCKS_FROM`, `RECEIVE_BLOCKS`, `NEW_BLOCK`, `TRANSACTION`.
+`HANDSHAKE`, `HANDSHAKE_ACK`, `PEERS`, `REQUEST_CHAIN`, `RECEIVE_CHAIN`,
+`REQUEST_LATEST`, `REQUEST_BLOCKS_FROM`, `RECEIVE_BLOCKS`, `NEW_BLOCK`,
+`TRANSACTION`.
+
+`PEERS` = danh sách peer canonical (`host:listenPort`) của node gửi — node nhận
+tự connect tới addr chưa biết. Broadcast ngay khi có connection mới (mesh cập
+nhận tức thì) và định kỳ 60s (tự lành khi event bị miss).
 
 ## REST API
 
@@ -128,13 +139,21 @@ src/
 - **Address** = sha256(public key) hex 64 ký tự.
 - **Shared state**: `Arc<tokio::sync::Mutex<Node>>` dùng chung bởi CLI, P2P tasks và
   REST API. PoW chạy ngoài lock (spawn_blocking) để node vẫn phản hồi trong lúc mine.
+- **Difficulty** nằm trong block header — node nhận validate theo difficulty khai báo
+  (clamp `[MIN, MAX]`, không được giảm so với block trước), không đoán từ hash.
+- **Trust boundary**: block nhận từ mạng được validate từng tx (chữ ký, double-spend,
+  số dư cộng dồn) — không chỉ header.
+- **Peer identity** = `host:listenPort` quảng bá qua handshake (PeerMap rekey từ
+  ephemeral addr) — discovery connect lại được. Connection song song (race 2
+  node connect nhau đồng thời) bị phát hiện và drop bản dư, mỗi cặp giữ đúng
+  1 connection.
 - **Double-spend**: mọi đường thêm block vào chain (mine / receive_block /
   receive_chain) đều đánh dấu txid vào `spent_txids`.
 
 ## Test
 
 ```bash
-cargo test          # 42 test: unit (chain/validators/merkle/crypto/wallet/storage) + P2P integration
+cargo test          # 50 test: unit (chain/validators/merkle/crypto/wallet/storage) + P2P integration (relay, sync, discovery, mesh động)
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check   # CI chạy 3 lệnh này (GitHub Actions)
 ```

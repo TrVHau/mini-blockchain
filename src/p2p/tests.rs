@@ -170,6 +170,48 @@ async fn transaction_relay_then_replay_rejected() {
 }
 
 #[tokio::test]
+async fn mesh_updates_when_new_node_joins() {
+    // A-B, A-C handshake xong (B-C đã biết nhau qua ACK). D join sau qua A —
+    // B và C phải tự connect D nhờ PEERS broadcast event-driven từ A
+    // (không cần tick 60s của announce_task).
+    let a = temp_node("a");
+    let b = temp_node("b");
+    let c = temp_node("c");
+    let d = temp_node("d");
+    let p2p_a = P2P::new(a.clone());
+    let p2p_b = P2P::new(b.clone());
+    let p2p_c = P2P::new(c.clone());
+    let p2p_d = P2P::new(d.clone());
+
+    p2p_a.start_server(0).await;
+    p2p_b.start_server(0).await;
+    p2p_c.start_server(0).await;
+    p2p_d.start_server(0).await;
+    let port_a = p2p_a.server_port.lock().unwrap().expect("server A");
+    let port_d = p2p_d.server_port.lock().unwrap().expect("server D");
+
+    // A-B, A-C; chờ mesh A-B-C hình thành (B-C biết nhau qua handshake ACK)
+    p2p_b.connect_to_peer("127.0.0.1", port_a).await;
+    p2p_c.connect_to_peer("127.0.0.1", port_a).await;
+    let ok = wait_for(Duration::from_secs(15), || async {
+        p2p_a.get_peers().len() == 2 && p2p_b.get_peers().len() == 2 && p2p_c.get_peers().len() == 2
+    })
+    .await;
+    assert!(ok, "mesh A-B-C phải hình thành (mỗi node 2 peer)");
+
+    // D join sau — connect A như một node mới
+    p2p_d.connect_to_peer("127.0.0.1", port_a).await;
+
+    // B và C phải tự connect D trong 15s nhờ PEERS broadcast từ A
+    let ok = wait_for(Duration::from_secs(15), || async {
+        p2p_b.is_connected(&format!("127.0.0.1:{port_d}"))
+            && p2p_c.is_connected(&format!("127.0.0.1:{port_d}"))
+    })
+    .await;
+    assert!(ok, "B và C phải tự connect D qua PEERS broadcast");
+}
+
+#[tokio::test]
 async fn peer_discovery_via_handshake() {
     // A-B và A-C kết nối; handshake ACK của A liệt kê peers -> B tự connect C
     let a = temp_node("a");

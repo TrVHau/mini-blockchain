@@ -36,6 +36,8 @@ pub const GENESIS_PREVIOUS_HASH: &str = "0";
 pub const WEBSOCKET_HANDSHAKE_TIMEOUT: u64 = 5_000;
 /// Giới hạn số peer kết nối (peer discovery tự connect đến mức này)
 pub const MAX_PEERS: usize = 50;
+/// Chu kỳ broadcast PEERS để mesh tự lành (ms) khi event-driven bị miss
+pub const PEERS_ANNOUNCE_INTERVAL: u64 = 60_000;
 
 // Sync (SyncManager.js)
 pub const SYNC_MAX_RETRY: u32 = 3;

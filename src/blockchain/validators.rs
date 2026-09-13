@@ -213,11 +213,11 @@ fn validate_proof_of_work(block: &Block, difficulty: usize) -> bool {
     true
 }
 
-/// Difficulty thực tế của một block đã mine = số leading-zeros của hash.
-/// Dùng khi validate block/chain từ mạng: node nhận không thể tin `self.difficulty`
-/// cục bộ (peer có thể đã adjust khác) — suy từ chính proof-of-work của block.
-pub fn pow_difficulty(block: &Block) -> usize {
-    block.hash.chars().take_while(|c| *c == '0').count()
+/// Difficulty khai báo trong header của block (miner mine theo đó).
+/// Trust-but-verify: node nhận so difficulty khai báo với giới hạn hợp lệ
+/// và với block trước đó (không được giảm ngoài adjustment rule).
+pub fn declared_difficulty(block: &Block) -> usize {
+    block.difficulty
 }
 
 fn validate_timestamp(block: &Block, previous_block: Option<&Block>) -> bool {
@@ -332,9 +332,9 @@ pub fn validate_block(block: &Block, opts: &BlockValidationOptions) -> bool {
 }
 
 /// Validate toàn bộ chain (bỏ qua genesis, giống JS).
-/// Difficulty kỳ vọng cho block i = leading-zeros của block i-1 (miner i-1
-/// đã adjust theo cùng thuật toán) — stateless, không tin difficulty cục bộ
-/// của node nhận. Block có PoW yếu hơn block trước vẫn bị từ chối.
+/// Difficulty mỗi block lấy từ header của chính nó (miner mine theo đó),
+/// chỉ chặn giảm vô lý: difficulty khai báo không được thấp hơn block trước
+/// và phải nằm trong [MIN_DIFFICULTY, MAX_DIFFICULTY].
 pub fn validate_chain(chain: &[Block], _local_difficulty: usize) -> bool {
     if chain.is_empty() {
         eprintln!("[BLOCK_VALIDATOR] ✗ Empty chain");
@@ -345,20 +345,18 @@ pub fn validate_chain(chain: &[Block], _local_difficulty: usize) -> bool {
     let mut rolling_balances = BalanceTracker::default();
     let mut rolling_spent: HashSet<String> = HashSet::new();
     for i in 1..chain.len() {
-        // ponytail: lấy min giữa difficulty của block trước và của chính block i
-        // — block i phải đạt ít nhất mức tip trước đó; cao hơn thì chấp nhận
-        // (peer đã adjust tăng là hợp lệ).
-        let expected = pow_difficulty(&chain[i - 1]);
-        let actual = pow_difficulty(&chain[i]);
-        if actual < expected {
+        let declared = declared_difficulty(&chain[i]);
+        let prev = declared_difficulty(&chain[i - 1]);
+        if declared < prev || !(config::MIN_DIFFICULTY..=config::MAX_DIFFICULTY).contains(&declared)
+        {
             eprintln!(
-                "[BLOCK_VALIDATOR] ✗ Block #{} PoW difficulty dropped ({} < {})",
-                i, actual, expected
+                "[BLOCK_VALIDATOR] ✗ Block #{} invalid difficulty {} (prev {})",
+                i, declared, prev
             );
             return false;
         }
         let opts = BlockValidationOptions {
-            difficulty: expected,
+            difficulty: declared,
             expected_index: Some(i),
             expected_previous_hash: Some(chain[i - 1].hash.clone()),
             previous_block: Some(chain[i - 1].clone()),

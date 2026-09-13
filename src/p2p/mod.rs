@@ -22,8 +22,30 @@ use crate::util;
 
 use handler::connection_task;
 
-/// addr -> channel gửi message ra peer đó
-pub type PeerMap = Arc<StdMutex<HashMap<String, mpsc::UnboundedSender<String>>>>;
+/// addr -> connection ra peer đó.
+/// `canonical`: addr đã là `host:listenPort` ổn định (peer quảng bá listenPort
+/// qua handshake) — chỉ addr canonical mới được broadcast trong PEERS, tránh
+/// lan truyền ephemeral port không connect lại được.
+#[derive(Clone)]
+pub struct PeerConn {
+    pub tx: mpsc::UnboundedSender<String>,
+    pub canonical: bool,
+}
+
+impl PeerConn {
+    /// Entry placeholder trong lúc connect tới peer discovery — chiếm key
+    /// để race discovery không connect đôi.
+    pub fn reserving() -> Self {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        Self {
+            tx,
+            canonical: false,
+        }
+    }
+}
+
+/// addr -> connection
+pub type PeerMap = Arc<StdMutex<HashMap<String, PeerConn>>>;
 
 pub struct P2P {
     pub peers: PeerMap,
@@ -80,6 +102,7 @@ impl P2P {
                             addr,
                             ws,
                             Some(actual_port),
+                            false,
                         ));
                     }
                     Err(e) => eprintln!("[P2P] ✗ WebSocket handshake failed: {e}"),
@@ -133,7 +156,7 @@ impl P2P {
                 let node = self.node.clone();
                 let peers = self.peers.clone();
                 let listen_port = *self.server_port.lock().unwrap();
-                tokio::spawn(connection_task(node, peers, address, ws, listen_port));
+                tokio::spawn(connection_task(node, peers, address, ws, listen_port, true));
             }
             Ok(Err(e)) => eprintln!("[P2P] ✗ Failed to connect to {address}: {e}"),
             Err(_) => eprintln!("[P2P] ✗ Failed to connect to {address}: handshake timeout"),
@@ -194,32 +217,82 @@ impl P2P {
 
 /// Gửi message tới một peer qua channel
 pub fn send_to(peers: &PeerMap, addr: &str, msg: &str) {
-    if let Some(tx) = peers.lock().unwrap().get(addr) {
-        let _ = tx.send(msg.to_string());
+    if let Some(conn) = peers.lock().unwrap().get(addr) {
+        let _ = conn.tx.send(msg.to_string());
     }
 }
 
-/// Peer discovery: connect tới một peer mới tìm thấy qua handshake.
+/// Peer discovery: connect tới một peer mới tìm thấy qua handshake/PEERS.
 /// Tách khỏi handler.rs vì connection_task ↔ handle_message đệ quy async —
 /// spawn từ đây phá được chuỗi Send không chứng minh được.
-pub fn connect_discovered(node: NodeHandle, peers: PeerMap, addr: String) {
+pub fn connect_discovered(
+    node: NodeHandle,
+    peers: PeerMap,
+    addr: String,
+    listen_port: Option<u16>,
+) {
+    // Reserve key ngay để PEERS thứ hai (race với connection chưa kịp insert)
+    // không connect đôi tới cùng peer. Placeholder tx đóng sẵn — nếu connect
+    // fail thì remove key.
+    {
+        let mut map = peers.lock().unwrap();
+        if map.contains_key(&addr) {
+            return;
+        }
+        map.insert(addr.clone(), PeerConn::reserving());
+    }
     tokio::spawn(async move {
         match tokio_tungstenite::connect_async(format!("ws://{addr}")).await {
             Ok((ws, _)) => {
                 println!("[P2P] ✓ Auto-connected to discovered peer: {addr}");
-                handler::connection_task(node, peers, addr, ws, None).await;
+                handler::connection_task(node, peers.clone(), addr, ws, listen_port, true).await;
             }
-            Err(e) => eprintln!("[P2P] ✗ Failed to connect to discovered peer {addr}: {e}"),
+            Err(e) => {
+                eprintln!("[P2P] ✗ Failed to connect to discovered peer {addr}: {e}");
+                // Dọn key placeholder nếu connect fail (placeholder không thuộc
+                // connection nào — xóa khi key vẫn là reserving entry)
+                let mut map = peers.lock().unwrap();
+                map.remove(&addr);
+            }
         }
     });
+}
+
+/// Broadcast PEERS cho mọi peer hiện có (mesh discovery). Chỉ gồm addr
+/// canonical (host:listenPort). Bao gồm cả chính listen port của mình —
+/// node nhận thấy mình trong list thì bỏ qua.
+pub fn broadcast_peers(peers: &PeerMap) {
+    let addrs: Vec<String> = peers
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, c)| c.canonical)
+        .map(|(addr, _)| addr.clone())
+        .collect();
+    if addrs.is_empty() {
+        return;
+    }
+    broadcast(peers, &messages::peers(&addrs));
+}
+
+/// Tick định kỳ broadcast PEERS — mesh tự lành khi event-driven bị miss
+/// (spawn từ cli/mod.rs như sync_watchdog).
+pub async fn announce_task(peers: PeerMap) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_millis(
+        config::PEERS_ANNOUNCE_INTERVAL,
+    ));
+    loop {
+        interval.tick().await;
+        broadcast_peers(&peers);
+    }
 }
 
 // Message handlers nằm ở handler.rs
 
 /// Broadcast tới mọi peer (free fn dùng trong các handler)
 pub fn broadcast(peers: &PeerMap, msg: &str) {
-    for tx in peers.lock().unwrap().values() {
-        let _ = tx.send(msg.to_string());
+    for conn in peers.lock().unwrap().values() {
+        let _ = conn.tx.send(msg.to_string());
     }
 }
 
@@ -230,6 +303,6 @@ pub fn relay_except(peers: &PeerMap, msg: &str, except: &str) -> usize {
         .unwrap()
         .iter()
         .filter(|(addr, _)| addr.as_str() != except)
-        .filter_map(|(_, tx)| tx.send(msg.to_string()).ok())
+        .filter_map(|(_, c)| c.tx.send(msg.to_string()).ok())
         .count()
 }
