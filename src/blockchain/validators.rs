@@ -129,6 +129,44 @@ pub fn validate_transaction(
     true
 }
 
+/// Validate các transactions TRONG block nhận từ mạng: chữ ký + không double-spend
+/// (txid chưa từng nằm trong chain) + số dư cộng dồn theo thứ tự trong block.
+/// Đây là trust boundary — block từ peer không được tin khi add vào chain.
+pub fn validate_block_transactions(
+    block: &Block,
+    balances: &BalanceTracker,
+    spent_txids: &HashSet<String>,
+) -> bool {
+    // Balance tạm: số dư cộng dồn trong block (tx sau thấy tx trước đã trừ)
+    let mut rolling = balances.clone();
+    for tx in &block.transactions {
+        if !validate_tx_signature(tx) {
+            return false;
+        }
+        let Some(txid) = &tx.txid else {
+            eprintln!("[TX_VALIDATOR] ✗ Transaction in block missing txid");
+            return false;
+        };
+        if spent_txids.contains(txid) {
+            eprintln!("[TX_VALIDATOR] ✗ Transaction in block already spent (double spend)");
+            return false;
+        }
+        let available = rolling.get_balance(&tx.from);
+        if available < tx.total_cost() as i128 {
+            eprintln!(
+                "[TX_VALIDATOR] ✗ Transaction in block #{} exceeds balance. Available: {}, Required: {}",
+                block.index,
+                util::fmt_micro_i(available),
+                util::fmt_micro(tx.total_cost())
+            );
+            return false;
+        }
+        rolling.debit(&tx.from, tx.total_cost());
+        rolling.credit(&tx.to, tx.amount);
+    }
+    true
+}
+
 // ---- BlockValidator ----
 
 #[derive(Debug, Clone, Default)]
@@ -302,6 +340,10 @@ pub fn validate_chain(chain: &[Block], _local_difficulty: usize) -> bool {
         eprintln!("[BLOCK_VALIDATOR] ✗ Empty chain");
         return false;
     }
+    // Balance + spent txids tích lũy theo chain — mỗi block thấy hiệu ứng
+    // của các block trước nó (trust boundary: không tin tx trong chain nhận từ mạng)
+    let mut rolling_balances = BalanceTracker::default();
+    let mut rolling_spent: HashSet<String> = HashSet::new();
     for i in 1..chain.len() {
         // ponytail: lấy min giữa difficulty của block trước và của chính block i
         // — block i phải đạt ít nhất mức tip trước đó; cao hơn thì chấp nhận
@@ -327,6 +369,23 @@ pub fn validate_chain(chain: &[Block], _local_difficulty: usize) -> bool {
         if !validate_block(&chain[i], &opts) {
             eprintln!("[BLOCK_VALIDATOR] ✗ Chain validation failed at block #{i}");
             return false;
+        }
+        if !validate_block_transactions(&chain[i], &rolling_balances, &rolling_spent) {
+            eprintln!(
+                "[BLOCK_VALIDATOR] ✗ Chain validation failed at block #{i} (invalid transactions)"
+            );
+            return false;
+        }
+        // Cập nhật rolling state cho block tiếp theo
+        if let Some(coinbase) = &chain[i].coinbase_tx {
+            rolling_balances.credit(&coinbase.to, coinbase.amount);
+        }
+        for tx in &chain[i].transactions {
+            if let Some(txid) = &tx.txid {
+                rolling_spent.insert(txid.clone());
+            }
+            rolling_balances.debit(&tx.from, tx.total_cost());
+            rolling_balances.credit(&tx.to, tx.amount);
         }
     }
     true

@@ -13,7 +13,7 @@ use crate::util;
 // ---- BalanceTracker ----
 
 /// Số dư theo địa chỉ. i128 vì debit có thể vượt credit (giống JS cho số âm).
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct BalanceTracker {
     balances: HashMap<String, i128>,
 }

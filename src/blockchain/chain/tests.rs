@@ -292,3 +292,86 @@ fn apply_rejects_when_chain_moved_and_restores_mempool() {
                                    // Tx được trả về mempool
     assert!(bc.mempool.iter().any(|m| m.txid == tx.txid));
 }
+
+#[test]
+fn apply_rejects_stale_overspending_tx() {
+    // Tx hợp lệ vào mempool; block chứa nó được mine nhưng TRƯỚC khi apply,
+    // một block khác đã tiêu hết số dư của người gửi -> block chứa tx vượt
+    // số dư phải bị từ chối, không được debit âm.
+    let (sk_a, pk_a, addr_a) = miner();
+    let (_, _, addr_b) = miner();
+    let mut bc = BlockChain::with_difficulty(2);
+    bc.mine_block(&addr_a); // A có 16 coins
+
+    // A gửi B 10 coins (tx1) — block chứa tx1 được prepare
+    let tx1 = signed_tx(&sk_a, &pk_a, &addr_a, &addr_b, 10_000_000, 0);
+    bc.add_transaction(&tx1).unwrap();
+    let (mut block1, difficulty) = bc.prepare_block(&addr_b);
+    block1.mine_block(difficulty, &addr_b);
+    // block1 chưa apply — nằm chờ
+
+    // Trong lúc đó A gửi B 10 coins nữa (tx2) — số dư vẫn 16 (tx1 chưa confirm)
+    let tx2 = signed_tx(&sk_a, &pk_a, &addr_a, &addr_b, 10_000_000, 0);
+    bc.add_transaction(&tx2).unwrap();
+    let mut block2 = bc.prepare_block(&addr_a).0;
+    block2.mine_block(difficulty, &addr_a);
+    assert!(bc.apply_mined_block(&block2)); // block2 confirm tx2, A còn 6 coins
+
+    // Apply block1 giờ vượt số dư: A còn 6, tx1 cần 10
+    let balance_before = bc.get_balance(&addr_a);
+    assert!(
+        !bc.apply_mined_block(&block1),
+        "block chứa tx vượt số dư phải bị từ chối"
+    );
+    assert_eq!(bc.get_balance(&addr_a), balance_before);
+    assert_eq!(bc.chain.len(), 3); // block1 không được thêm
+}
+
+#[test]
+fn receive_block_rejects_overspending_tx() {
+    // Node độc hại gửi block nối tiếp tip hợp lệ nhưng chứa tx VƯỢT số dư
+    // (không ký / không đủ tiền) — receive_block phải validate từng tx,
+    // không chỉ header của block.
+    let (sk_a, pk_a, addr_a) = miner();
+    let (_, _, addr_b) = miner();
+    let mut honest = BlockChain::with_difficulty(2);
+    honest.mine_block(&addr_a); // A có 16 coins
+
+    // Kẻ tấn công tự dựng block #2 nối tiếp tip, chứa tx A->B 100 coins
+    // (A chỉ có 16) với chữ ký hợp lệ
+    let mut evil = honest.prepare_block(&addr_b).0;
+    let overspend = signed_tx(&sk_a, &pk_a, &addr_a, &addr_b, 100_000_000, 0);
+    evil.transactions = vec![overspend];
+    evil.mine_block(2, &addr_b);
+
+    // Block nhận từ mạng: hash/PoW/linkage hợp lệ nhưng tx vượt số dư
+    let mut victim = BlockChain::with_difficulty(2);
+    assert!(victim.receive_block(&honest.chain[1]), "block #1 hợp lệ");
+    assert!(
+        !victim.receive_block(&evil),
+        "block chứa tx vượt số dư phải bị từ chối"
+    );
+    assert_eq!(victim.chain.len(), 2); // evil block không được thêm
+}
+
+#[test]
+fn receive_block_rejects_unsigned_tx() {
+    // Block chứa tx KHÔNG ký (sửa amount sau khi ký làm chữ ký lệch)
+    let (sk_a, pk_a, addr_a) = miner();
+    let (_, _, addr_b) = miner();
+    let mut honest = BlockChain::with_difficulty(2);
+    honest.mine_block(&addr_a);
+
+    let mut tampered = signed_tx(&sk_a, &pk_a, &addr_a, &addr_b, 1_000_000, 0);
+    tampered.amount = 2_000_000; // sửa amount -> chữ ký không còn khớp
+    let mut evil = honest.prepare_block(&addr_b).0;
+    evil.transactions = vec![tampered];
+    evil.mine_block(2, &addr_b);
+
+    let mut victim = BlockChain::with_difficulty(2);
+    assert!(victim.receive_block(&honest.chain[1]));
+    assert!(
+        !victim.receive_block(&evil),
+        "block chứa tx chữ ký không hợp lệ phải bị từ chối"
+    );
+}

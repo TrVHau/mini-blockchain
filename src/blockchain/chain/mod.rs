@@ -162,6 +162,16 @@ impl BlockChain {
             eprintln!("[BLOCKCHAIN] ✗ Block #{} validation failed", block.index);
             return false;
         }
+        // Trust boundary: validate từng tx trong block (chữ ký, double-spend,
+        // số dư cộng dồn) — block từ peer không được tin.
+        if !validators::validate_block_transactions(block, &self.balance_tracker, &self.spent_txids)
+        {
+            eprintln!(
+                "[BLOCKCHAIN] ✗ Block #{} contains invalid transactions",
+                block.index
+            );
+            return false;
+        }
 
         let block = block.clone();
         self.chain.push(block.clone());
