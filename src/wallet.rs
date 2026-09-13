@@ -165,7 +165,9 @@ impl WalletManager {
         let path = self.wallet_dir.join(format!("{name}.json"));
         serde_json::to_string_pretty(wallet)
             .map_err(|e| e.to_string())
-            .and_then(|json| std::fs::write(path, json).map_err(|e| e.to_string()))
+            .and_then(|json| std::fs::write(&path, json).map_err(|e| e.to_string()))
+            // Private key trong file — chỉ owner được đọc
+            .and_then(|_| set_owner_only(&path))
     }
 
     fn load_all_wallets(&mut self) {
@@ -182,11 +184,25 @@ impl WalletManager {
                 if let Ok(wallet) = serde_json::from_str::<Wallet>(
                     &std::fs::read_to_string(&path).unwrap_or_default(),
                 ) {
+                    let _ = set_owner_only(&path); // file cũ có thể 644
                     self.wallets.insert(name.to_string(), wallet);
                 }
             }
         }
     }
+}
+
+/// Unix: chmod 0o600. Non-unix: no-op.
+fn set_owner_only(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
 }
 
 #[cfg(test)]

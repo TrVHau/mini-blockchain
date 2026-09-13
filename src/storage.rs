@@ -47,20 +47,21 @@ impl Storage {
         self.load_json(self.mempool_path(), "mempool")
     }
 
+    /// Ghi atomic: write file tạm + rename — crash giữa chừng không làm hỏng file cũ
     fn save_json<T: serde::Serialize + ?Sized>(&self, path: PathBuf, data: &T, what: &str) -> bool {
-        match serde_json::to_string(data) {
-            Ok(json) => match std::fs::write(path, json) {
-                Ok(_) => true,
-                Err(e) => {
-                    eprintln!("[STORAGE] ✗ Error saving {what}: {e}");
-                    false
-                }
-            },
+        let json = match serde_json::to_string(data) {
+            Ok(json) => json,
             Err(e) => {
                 eprintln!("[STORAGE] ✗ Error serializing {what}: {e}");
-                false
+                return false;
             }
+        };
+        let tmp = path.with_extension("json.tmp");
+        if let Err(e) = std::fs::write(&tmp, json).and_then(|_| std::fs::rename(&tmp, &path)) {
+            eprintln!("[STORAGE] ✗ Error saving {what}: {e}");
+            return false;
         }
+        true
     }
 
     fn load_json<T: serde::de::DeserializeOwned>(&self, path: PathBuf, what: &str) -> Option<T> {
