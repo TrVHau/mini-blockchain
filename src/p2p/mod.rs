@@ -133,8 +133,7 @@ impl P2P {
     }
 
     pub fn is_connected(&self, address: &str) -> bool {
-        let peers = self.peers.lock().unwrap();
-        peers.keys().any(|addr| addr == address || addr.contains(address))
+        self.peers.lock().unwrap().contains_key(address)
     }
 
     pub fn get_peers(&self) -> Vec<String> {

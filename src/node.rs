@@ -73,13 +73,6 @@ impl Node {
         }
     }
 
-    /// Mine + auto-save (JS wrapWithSave)
-    pub fn mine_block(&mut self, miner_address: &str) -> Block {
-        let block = self.blockchain.mine_block(miner_address);
-        self.storage.save_blockchain(&self.blockchain.chain);
-        block
-    }
-
     /// Nhận block từ mạng + auto-save khi thành công
     pub fn receive_block(&mut self, block: &Block) -> bool {
         if self.blockchain.receive_block(block) {
@@ -104,5 +97,30 @@ impl Node {
     pub fn reset(&mut self) {
         self.blockchain.reset();
         self.storage.save_blockchain(&self.blockchain.chain);
+    }
+}
+
+/// Mine + auto-save (JS wrapWithSave).
+/// PoW chạy NGOÀI lock qua spawn_blocking — node vẫn phản hồi CLI/P2P trong lúc mine.
+/// Trả về None nếu chain đổi giữa chừng (tx đã được trả về mempool).
+pub async fn mine_block(node: &NodeHandle, miner_address: &str) -> Option<Block> {
+    let (mut block, difficulty) = {
+        let mut n = node.lock().await;
+        n.blockchain.prepare_block(miner_address)
+    };
+    let miner = miner_address.to_string();
+    let mined = tokio::task::spawn_blocking(move || {
+        block.mine_block(difficulty, &miner);
+        block
+    })
+    .await
+    .expect("mine task panicked");
+
+    let mut n = node.lock().await;
+    if n.blockchain.apply_mined_block(&mined) {
+        n.storage.save_blockchain(&n.blockchain.chain);
+        Some(mined)
+    } else {
+        None
     }
 }

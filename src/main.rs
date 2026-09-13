@@ -47,23 +47,38 @@ fn main() {
     };
 
     let args: Vec<String> = std::env::args().skip(1).collect();
+
+    // Lấy giá trị đứng sau flag, báo lỗi + thoát nếu thiếu
+    fn value_of(args: &[String], flag: &str, i: &mut usize) -> String {
+        *i += 1;
+        match args.get(*i) {
+            Some(v) => v.clone(),
+            None => {
+                eprintln!("Missing value for {flag}. Use -h for help.");
+                std::process::exit(1);
+            }
+        }
+    }
+
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
         match arg.as_str() {
             "-p" | "--port" => {
-                i += 1;
-                options.port = args.get(i).and_then(|p| p.parse::<u16>().ok());
-            }
-            "-n" | "--node" | "--id" => {
-                i += 1;
-                if let Some(id) = args.get(i) {
-                    options.node_id = id.clone();
+                let v = value_of(&args, arg, &mut i);
+                match v.parse::<u16>() {
+                    Ok(p) => options.port = Some(p),
+                    Err(_) => {
+                        eprintln!("Invalid port: {v}. Use -h for help.");
+                        std::process::exit(1);
+                    }
                 }
             }
+            "-n" | "--node" | "--id" => {
+                options.node_id = value_of(&args, arg, &mut i);
+            }
             "-c" | "--connect" => {
-                i += 1;
-                options.connect = args.get(i).cloned(); // format: host:port
+                options.connect = Some(value_of(&args, arg, &mut i)); // format: host:port
             }
             "-a" | "--auto" => options.auto_start = true,
             "-h" | "--help" => {

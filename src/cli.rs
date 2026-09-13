@@ -578,16 +578,17 @@ async fn cmd_mine(node: &NodeHandle, p2p: &Arc<P2P>, wallet: &str) {
     let display = util::shorten_address(&miner_address);
     println!("{}", util::info(&format!("Mining block for {display}...")));
 
-    let block = {
-        let mut n = node.lock().await;
-        n.mine_block(&miner_address)
+    // PoW chạy ngoài lock — node vẫn phản hồi các lệnh khác trong lúc mine
+    let Some(block) = crate::node::mine_block(node, &miner_address).await else {
+        println!("{}", util::warning("Chain changed while mining — transactions returned to mempool"));
+        return;
     };
 
     let lines = vec![
         util::key_value("Block", &format!("#{CYAN}{}{RESET}", block.index)),
         util::key_value("Transactions", &format!("{YELLOW}{}{RESET}", block.transactions.len())),
         util::key_value("Nonce", &format!("{DIM}{}{RESET}", block.nonce)),
-        util::key_value("Hash", &format!("{DIM}{}...{RESET}", &block.hash[..16])),
+        util::key_value("Hash", &format!("{DIM}{}{RESET}", util::prefix(&block.hash, 16))),
     ];
     println!("\n{}", util::box_lines(&lines, "⛏ Block Mined", 45));
     let reward = block.coinbase_tx.as_ref().map(|c| c.amount).unwrap_or(0);
@@ -642,7 +643,7 @@ async fn auto_mine_task(node: NodeHandle, p2p: Arc<P2P>) {
         tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
 
         let block = {
-            let mut n = node.lock().await;
+            let n = node.lock().await;
             if n.auto_mine.is_none() {
                 break;
             }
@@ -651,7 +652,11 @@ async fn auto_mine_task(node: NodeHandle, p2p: Arc<P2P>) {
             }
             println!("{}", util::info(&format!("Auto-mining {} pending tx(s)...", n.blockchain.mempool.len())));
             let miner = n.auto_mine.as_ref().unwrap().0.clone();
-            n.mine_block(&miner)
+            drop(n);
+            match crate::node::mine_block(&node, &miner).await {
+                Some(b) => b,
+                None => continue, // chain đổi giữa chừng — vòng sau thử lại
+            }
         };
         let reward = block.coinbase_tx.as_ref().map(|c| c.amount).unwrap_or(0);
         println!(
@@ -704,7 +709,7 @@ async fn cmd_block(node: &NodeHandle, query: &str) {
             n if n > 1 => {
                 println!("{}", util::warning(&format!("Multiple blocks match \"{query}\":")));
                 for b in matches {
-                    println!("  #{}: {}...", b.index, &b.hash[..20]);
+                    println!("  #{}: {}", b.index, util::prefix(&b.hash, 20));
                 }
             }
             _ => println!("{}", util::error(&format!("Block not found: \"{query}\""))),
@@ -780,8 +785,8 @@ async fn cmd_tx(node: &NodeHandle, query: &str) {
             println!("{}", util::divider(29));
             println!("  TxID:          {YELLOW}{}{RESET}", info.transaction.txid.as_deref().unwrap_or(""));
             println!("  Block:         {CYAN}#{}{RESET}", info.block_index);
-            println!("  From:          {}...", &info.transaction.from[..16]);
-            println!("  To:            {}...", &info.transaction.to[..16]);
+            println!("  From:          {}", util::prefix(&info.transaction.from, 16));
+            println!("  To:            {}", util::prefix(&info.transaction.to, 16));
             println!("  Amount:        {GREEN}{}{RESET} coins", util::fmt_micro(info.transaction.amount));
             println!("  Fee:           {YELLOW}{}{RESET} coins", util::fmt_micro(info.transaction.fee));
             println!("  Confirmations: {conf_color}{}{RESET}", info.confirmations);
@@ -805,10 +810,10 @@ async fn cmd_mempool(node: &NodeHandle) {
     println!("{}", util::divider(29));
     for (i, tx) in pending.iter().enumerate() {
         println!(
-            "  {}. {}... → {}... | {GREEN}{}{RESET} coins | fee: {}",
+            "  {}. {} → {} | {GREEN}{}{RESET} coins | fee: {}",
             i + 1,
-            &tx.from[..12],
-            &tx.to[..12],
+            util::prefix(&tx.from, 12),
+            util::prefix(&tx.to, 12),
             util::fmt_micro(tx.amount),
             util::fmt_micro(tx.fee)
         );

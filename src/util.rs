@@ -105,6 +105,16 @@ pub fn shorten_address(address: &str) -> String {
     format!("{}...{}", &address[..prefix], &address[address.len() - suffix..])
 }
 
+/// Prefix an toàn: n ký tự đầu + "..." — không panic khi chuỗi ngắn
+/// (dùng cho hash/txid/addr từ network có thể bất thường)
+pub fn prefix(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        s.to_string()
+    } else {
+        format!("{}...", s.chars().take(n).collect::<String>())
+    }
+}
+
 /// Address hợp lệ: 64 ký tự hex
 pub fn is_valid_address(address: &str) -> bool {
     address.len() == 64 && address.bytes().all(|b| b.is_ascii_hexdigit())

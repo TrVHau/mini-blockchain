@@ -12,7 +12,7 @@ pub fn hash_pair(left: &str, right: &str) -> String {
 }
 
 fn pad_odd(level: &mut Vec<String>) {
-    if level.len() % 2 != 0 {
+    if !level.len().is_multiple_of(2) {
         if let Some(last) = level.last() {
             let last = last.clone();
             level.push(last);
@@ -81,7 +81,7 @@ pub fn get_proof(tx_hashes: &[String], index: usize) -> Option<Vec<ProofNode>> {
             let right = level.get(i + 1).unwrap_or(left);
 
             if i == current_index || i + 1 == current_index {
-                let is_left = current_index % 2 == 0;
+                let is_left = current_index.is_multiple_of(2);
                 proof.push(ProofNode {
                     hash: if is_left { right.clone() } else { left.clone() },
                     position: if is_left { "right" } else { "left" }.to_string(),

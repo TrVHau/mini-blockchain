@@ -119,7 +119,7 @@ impl BlockChain {
     pub fn adjust_difficulty(&mut self) {
         let interval = config::DIFFICULTY_ADJUSTMENT_INTERVAL;
         let latest = self.get_latest_block();
-        if latest.index % interval != 0 || latest.index == 0 {
+        if !latest.index.is_multiple_of(interval) || latest.index == 0 {
             return;
         }
         let prev_adjustment = &self.chain[self.chain.len() - interval];
@@ -226,14 +226,29 @@ impl BlockChain {
         Ok(())
     }
 
-    /// Mine block mới: chọn tx từ mempool (fee cao trước), PoW, cập nhật state
+    /// Mine block mới: chọn tx từ mempool (fee cao trước), PoW, cập nhật state.
+    /// Gồm cả 3 bước: prepare → mine → apply (dùng khi giữ lock suốt cũng ổn).
+    #[allow(dead_code)] // dùng trong test; luồng runtime đi qua node::mine_block (spawn_blocking)
     pub fn mine_block(&mut self, miner_address: &str) -> Block {
+        let (mut block, difficulty) = self.prepare_block(miner_address);
+        block.mine_block(difficulty, miner_address);
+        // Luồng đồng bộ: không ai đổi chain giữa chừng nên apply luôn thành công
+        assert!(
+            self.apply_mined_block(&block),
+            "apply_mined_block thất bại ở luồng đồng bộ — logic prepare/apply lệch nhau"
+        );
+        block
+    }
+
+    /// Bước 1 (chạy dưới lock): snapshot latest block + chọn tx từ mempool
+    /// (ưu tiên fee cao, giới hạn số lượng + size), xóa tx đã chọn khỏi mempool.
+    /// Trả về block CHƯA mine + difficulty hiện tại.
+    pub fn prepare_block(&mut self, miner_address: &str) -> (Block, usize) {
         let pre_block = self.get_latest_block().clone();
         let mut new_block = Block::new(pre_block.index + 1, None, &pre_block.hash, Some(miner_address.to_string()));
 
-        // Chọn transactions từ mempool (ưu tiên fee cao, giới hạn số lượng + size)
         let mut sorted_mempool = self.mempool.clone();
-        sorted_mempool.sort_by(|a, b| b.fee.cmp(&a.fee));
+        sorted_mempool.sort_by_key(|tx| std::cmp::Reverse(tx.fee));
 
         let mut selected: Vec<Transaction> = Vec::new();
         let mut current_size = 0usize;
@@ -259,21 +274,36 @@ impl BlockChain {
         self.mempool
             .retain(|tx| !selected_keys.contains(tx.txid.as_deref().unwrap_or("")) || tx.txid.is_none());
 
-        // Mine block
-        new_block.mine_block(self.difficulty, miner_address);
+        (new_block, self.difficulty)
+    }
+
+    /// Bước 3 (chạy dưới lock): áp block đã mine vào chain.
+    /// Nếu chain đã đổi giữa lúc mine (peer thêm block khác) → từ chối,
+    /// trả các transactions của block về mempool.
+    pub fn apply_mined_block(&mut self, block: &Block) -> bool {
+        let latest = self.get_latest_block();
+        if latest.hash != block.previous_hash || latest.index + 1 != block.index {
+            println!(
+                "[BLOCKCHAIN] ⚠ Chain changed while mining (local tip #{}), discarding mined block #{}",
+                latest.index, block.index
+            );
+            // Tx của block bị bỏ được trả về mempool (chúng đã bị remove ở prepare).
+            // Tx không có txid không bao giờ vào mempool qua add_transaction nên không bị trùng.
+            self.mempool.extend(block.transactions.iter().cloned());
+            return false;
+        }
 
         // Track spent transactions
-        for tx in &new_block.transactions {
+        for tx in &block.transactions {
             if let Some(txid) = &tx.txid {
                 self.spent_txids.insert(txid.clone());
             }
         }
 
-        self.chain.push(new_block.clone());
-        self.balance_tracker.process_block(&new_block);
+        self.chain.push(block.clone());
+        self.balance_tracker.process_block(block);
         self.adjust_difficulty();
-
-        new_block
+        true
     }
 
     pub fn get_balance(&self, address: &str) -> i128 {
@@ -293,7 +323,7 @@ impl BlockChain {
                         fee: 0,
                         timestamp: block.timestamp,
                         block_index: block.index,
-                        hash: format!("{}...", &block.hash[..16]),
+                        hash: util::prefix(&block.hash, 16),
                     });
                 }
             }
@@ -307,7 +337,7 @@ impl BlockChain {
                         fee: tx.fee,
                         timestamp: block.timestamp,
                         block_index: block.index,
-                        hash: format!("{}...", &block.hash[..16]),
+                        hash: util::prefix(&block.hash, 16),
                     });
                 }
             }
@@ -349,7 +379,7 @@ impl BlockChain {
     /// Transactions trong mempool, sắp xếp theo fee
     pub fn get_pending_transactions(&self) -> Vec<&Transaction> {
         let mut pending: Vec<&Transaction> = self.mempool.iter().collect();
-        pending.sort_by(|a, b| b.fee.cmp(&a.fee));
+        pending.sort_by_key(|tx| std::cmp::Reverse(tx.fee));
         pending
     }
 
@@ -361,7 +391,7 @@ impl BlockChain {
         let n = self.mempool.len() as u64;
         let sum: u64 = self.mempool.iter().map(|tx| tx.fee).sum();
         // ceil(sum/n * 1.1) = ceil(sum*11 / (n*10))
-        (sum.saturating_mul(11) + n * 10 - 1) / (n * 10)
+        sum.saturating_mul(11).div_ceil(n * 10)
     }
 }
 
@@ -507,5 +537,40 @@ mod tests {
         let last = bc.get_latest_block();
         assert_eq!(last.coinbase_tx.as_ref().unwrap().amount, 8_000_000);
         assert_eq!(bc.get_block_reward(), 8_000_000);
+    }
+
+    #[test]
+    fn prepare_mine_apply_flow() {
+        let (_, _, miner_addr) = miner();
+        let mut bc = BlockChain::with_difficulty(2);
+        let (mut block, difficulty) = bc.prepare_block(&miner_addr);
+        block.mine_block(difficulty, &miner_addr);
+        assert!(bc.apply_mined_block(&block));
+        assert_eq!(bc.chain.len(), 2);
+        assert_eq!(bc.get_balance(&miner_addr), 16_000_000);
+        assert!(bc.is_chain_valid());
+    }
+
+    #[test]
+    fn apply_rejects_when_chain_moved_and_restores_mempool() {
+        let (sk_a, pk_a, addr_a) = miner();
+        let (_, _, addr_b) = miner();
+        let mut bc = BlockChain::with_difficulty(2);
+        bc.mine_block(&addr_a);
+
+        let tx = signed_tx(&sk_a, &pk_a, &addr_a, &addr_b, 1_000_000, 0);
+        bc.add_transaction(&tx).unwrap();
+
+        // Prepare (tx bị remove khỏi mempool), rồi chain đổi trước khi apply
+        let (mut block, difficulty) = bc.prepare_block(&addr_b);
+        assert_eq!(block.transactions.len(), 1);
+        assert!(bc.mempool.is_empty());
+        block.mine_block(difficulty, &addr_b);
+        bc.mine_block(&addr_a); // peer thêm block khác -> chain moved
+
+        assert!(!bc.apply_mined_block(&block));
+        assert_eq!(bc.chain.len(), 3); // block bị bỏ không được thêm
+        // Tx được trả về mempool
+        assert!(bc.mempool.iter().any(|m| m.txid == tx.txid));
     }
 }

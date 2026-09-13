@@ -168,7 +168,11 @@ impl std::fmt::Display for Block {
             format!("  {DIM}No transactions{RESET}")
         };
 
-        let hash_short = format!("{}...{}", &self.hash[..20], &self.hash[self.hash.len() - 8..]);
+        let hash_short = if self.hash.len() > 28 {
+            format!("{}...{}", &self.hash[..20], &self.hash[self.hash.len() - 8..])
+        } else {
+            self.hash.clone()
+        };
 
         write!(
             f,
