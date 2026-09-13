@@ -80,10 +80,12 @@ impl BlockChain {
         self.chain.last().expect("chain luôn có ít nhất genesis")
     }
 
+    #[allow(dead_code)] // API port từ JS, chưa có caller
     pub fn get_block(&self, index: usize) -> Option<&Block> {
         self.chain.get(index)
     }
 
+    #[allow(dead_code)] // API port từ JS, chưa có caller
     pub fn get_block_by_hash(&self, hash: &str) -> Option<&Block> {
         self.chain.iter().find(|b| b.hash == hash)
     }

@@ -34,11 +34,13 @@ pub const GENESIS_PREVIOUS_HASH: &str = "0";
 
 // Network
 pub const WEBSOCKET_HANDSHAKE_TIMEOUT: u64 = 5_000;
+#[allow(dead_code)] // port đủ constants từ constants.js, dùng dần
 pub const MAX_PEERS: usize = 50;
 
 // Sync (SyncManager.js)
 pub const SYNC_MAX_RETRY: u32 = 3;
 pub const SYNC_TIMEOUT_MS: u64 = 30_000;
+#[allow(dead_code)] // port đủ constants từ constants.js, dùng dần
 pub const SYNC_COOLDOWN_MS: u64 = 5_000;
 pub const MAX_BLOCKS_PER_REQUEST: usize = 50;
 

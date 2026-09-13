@@ -121,6 +121,7 @@ pub struct BlockValidationOptions {
 }
 
 impl BlockValidationOptions {
+    #[allow(dead_code)] // API port từ JS, chưa có caller
     pub fn new(difficulty: usize) -> Self {
         Self {
             difficulty,
