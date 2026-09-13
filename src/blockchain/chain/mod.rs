@@ -120,41 +120,33 @@ impl BlockChain {
         }
     }
 
-    /// Điều chỉnh difficulty dựa trên thời gian mining (mỗi DIFFICULTY_ADJUSTMENT_INTERVAL blocks)
+    /// Sync difficulty cho block tiếp theo theo retarget rule — gọi chung
+    /// expected_difficulty với validator để miner và validator không lệch nhau
+    /// (cửa sổ đo từ block index - interval, không phải index - interval + 1).
     pub fn adjust_difficulty(&mut self) {
-        let interval = config::DIFFICULTY_ADJUSTMENT_INTERVAL;
-        let latest = self.get_latest_block();
-        if !latest.index.is_multiple_of(interval) || latest.index == 0 {
-            return;
-        }
-        let prev_adjustment = &self.chain[self.chain.len() - interval];
-        let time_expected = (interval as u64) * config::TARGET_BLOCK_TIME;
-        let time_taken = latest.timestamp.saturating_sub(prev_adjustment.timestamp);
-
-        if time_taken < time_expected / 2 {
-            self.difficulty = (self.difficulty + 1).min(config::MAX_DIFFICULTY);
-            println!("[BLOCKCHAIN] Difficulty increased to {}", self.difficulty);
-        } else if time_taken > time_expected * 2 {
-            self.difficulty = self
-                .difficulty
-                .saturating_sub(1)
-                .max(config::MIN_DIFFICULTY);
-            println!("[BLOCKCHAIN] Difficulty decreased to {}", self.difficulty);
+        if let Some(d) = validators::expected_difficulty(&self.chain, self.chain.len()) {
+            if d != self.difficulty {
+                println!("[BLOCKCHAIN] Difficulty adjusted to {d}");
+                self.difficulty = d;
+            }
         }
     }
 
     /// Nhận block từ mạng — validate rồi thêm vào chain.
-    /// Difficulty lấy từ header của block (miner mine theo đó), chỉ chặn
-    /// thấp hơn tip hiện tại hoặc ngoài [MIN, MAX].
+    /// Difficulty phải khớp retarget rule suy từ chain (tăng HAY giảm đều
+    /// chỉ được xảy ra tại boundary) — mirror adjust_difficulty của miner.
     pub fn receive_block(&mut self, block: &Block) -> bool {
         let latest = self.get_latest_block().clone();
         let declared = validators::declared_difficulty(block);
-        let min_required = validators::declared_difficulty(&latest).max(config::MIN_DIFFICULTY);
-        if declared < min_required || declared > config::MAX_DIFFICULTY {
+        let difficulty_ok = match validators::expected_difficulty(&self.chain, block.index) {
+            Some(expected) => declared == expected,
+            // Block #1: chưa có mốc retarget — chỉ chặn ngoài [MIN, MAX]
+            None => (config::MIN_DIFFICULTY..=config::MAX_DIFFICULTY).contains(&declared),
+        };
+        if !difficulty_ok {
             eprintln!(
-                "[BLOCKCHAIN] ✗ Block #{} difficulty {declared} ngoài [{min_required}, {}]",
-                block.index,
-                config::MAX_DIFFICULTY
+                "[BLOCKCHAIN] ✗ Block #{} difficulty {declared} không khớp retarget rule",
+                block.index
             );
             return false;
         }
@@ -189,6 +181,8 @@ impl BlockChain {
         self.balance_tracker.process_block(&block);
         // Xóa các transactions đã confirm khỏi mempool
         self.remove_confirmed_transactions(&block);
+        // Sync difficulty mining với tip mới (giờ biết window retarget thật)
+        self.adjust_difficulty();
         println!(
             "[BLOCKCHAIN] ✓ Block #{} accepted and added to chain",
             block.index
@@ -257,9 +251,9 @@ impl BlockChain {
         for block in new_chain {
             self.track_spent(block);
         }
-        // Sync difficulty cục bộ với tip của chain mới (để mine block sau
-        // tiếp nối đúng difficulty của mạng)
-        self.difficulty = validators::declared_difficulty(self.get_latest_block());
+        // Sync difficulty cục bộ theo retarget rule của chain mới (để mine
+        // block sau tiếp nối đúng difficulty của mạng)
+        self.adjust_difficulty();
         // Reset mempool khi nhận chain mới vì các tx cũ có thể không còn valid
         self.mempool.clear();
         true

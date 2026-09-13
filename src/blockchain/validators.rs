@@ -214,10 +214,46 @@ fn validate_proof_of_work(block: &Block, difficulty: usize) -> bool {
 }
 
 /// Difficulty khai báo trong header của block (miner mine theo đó).
-/// Trust-but-verify: node nhận so difficulty khai báo với giới hạn hợp lệ
-/// và với block trước đó (không được giảm ngoài adjustment rule).
 pub fn declared_difficulty(block: &Block) -> usize {
     block.difficulty
+}
+
+/// Difficulty mà block tại `index` PHẢI khai báo, suy deterministic từ chain
+/// trước nó (`chain[..index]`). Đây là retarget rule — dùng chung bởi miner
+/// (adjust_difficulty) và validator để hai bên không thể lệch nhau:
+/// - block #1: `None` — chưa có mốc retarget, difficulty khởi điểm do miner chọn
+/// - ngoài boundary: bằng difficulty của block trước
+/// - tại boundary (block trước có index là bội của interval): ±1 theo thời gian
+///   mining của interval vừa qua, clamp [MIN, MAX]
+///
+/// ponytail: window đọc timestamp do miner tự ghi — chưa có median-time rule,
+/// thêm khi cần chống timejacking.
+pub fn expected_difficulty(chain: &[Block], index: usize) -> Option<usize> {
+    if index <= 1 {
+        return None;
+    }
+    let Some(prev) = chain.get(index - 1) else {
+        return None; // index ngoài chain — validate_block chặn qua expected_index
+    };
+    let interval = config::DIFFICULTY_ADJUSTMENT_INTERVAL;
+    let prev_index = index - 1;
+    if !prev_index.is_multiple_of(interval) {
+        return Some(prev.difficulty);
+    }
+    // Cửa sổ = interval block vừa qua: block (prev_index - interval) .. prev_index
+    let Some(anchor) = chain.get(prev_index - interval) else {
+        return Some(prev.difficulty);
+    };
+    let window = prev.timestamp.saturating_sub(anchor.timestamp);
+    let expected_time = (interval as u64) * config::TARGET_BLOCK_TIME;
+    let d = prev.difficulty;
+    Some(if window < expected_time / 2 {
+        (d + 1).min(config::MAX_DIFFICULTY)
+    } else if window > expected_time * 2 {
+        d.saturating_sub(1).max(config::MIN_DIFFICULTY)
+    } else {
+        d
+    })
 }
 
 fn validate_timestamp(block: &Block, previous_block: Option<&Block>) -> bool {
@@ -322,19 +358,19 @@ pub fn validate_block(block: &Block, opts: &BlockValidationOptions) -> bool {
     if !validate_timestamp(block, opts.previous_block.as_ref()) {
         return false;
     }
-    if block.coinbase_tx.is_some() {
-        let total_fees: u64 = block.transactions.iter().map(|tx| tx.fee).sum();
-        if !validate_coinbase(block, opts.expected_reward, total_fees) {
-            return false;
-        }
+    // Coinbase bắt buộc — block không coinbase không được chấp nhận
+    let total_fees: u64 = block.transactions.iter().map(|tx| tx.fee).sum();
+    if !validate_coinbase(block, opts.expected_reward, total_fees) {
+        return false;
     }
     true
 }
 
 /// Validate toàn bộ chain (bỏ qua genesis, giống JS).
-/// Difficulty mỗi block lấy từ header của chính nó (miner mine theo đó),
-/// chỉ chặn giảm vô lý: difficulty khai báo không được thấp hơn block trước
-/// và phải nằm trong [MIN_DIFFICULTY, MAX_DIFFICULTY].
+/// Difficulty mỗi block phải khớp retarget rule suy từ chain trước nó
+/// (expected_difficulty) — tăng hay giảm đều chỉ xảy ra tại boundary,
+/// mirror đúng những gì miner làm. Trust boundary: không tin difficulty
+/// khai báo tùy ý trong block nhận từ mạng.
 pub fn validate_chain(chain: &[Block], _local_difficulty: usize) -> bool {
     if chain.is_empty() {
         eprintln!("[BLOCK_VALIDATOR] ✗ Empty chain");
@@ -346,12 +382,15 @@ pub fn validate_chain(chain: &[Block], _local_difficulty: usize) -> bool {
     let mut rolling_spent: HashSet<String> = HashSet::new();
     for i in 1..chain.len() {
         let declared = declared_difficulty(&chain[i]);
-        let prev = declared_difficulty(&chain[i - 1]);
-        if declared < prev || !(config::MIN_DIFFICULTY..=config::MAX_DIFFICULTY).contains(&declared)
-        {
+        let difficulty_ok = match expected_difficulty(chain, i) {
+            Some(expected) => declared == expected,
+            // Block #1: chưa có mốc retarget — chỉ chặn ngoài [MIN, MAX]
+            None => (config::MIN_DIFFICULTY..=config::MAX_DIFFICULTY).contains(&declared),
+        };
+        if !difficulty_ok {
             eprintln!(
-                "[BLOCK_VALIDATOR] ✗ Block #{} invalid difficulty {} (prev {})",
-                i, declared, prev
+                "[BLOCK_VALIDATOR] ✗ Block #{} difficulty {declared} không khớp retarget rule",
+                i
             );
             return false;
         }
