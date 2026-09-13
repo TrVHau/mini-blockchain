@@ -4,6 +4,9 @@
 pub mod messages;
 pub mod sync;
 
+#[cfg(test)]
+mod tests;
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
 
@@ -54,7 +57,9 @@ impl P2P {
                 return;
             }
         };
-        *self.server_port.lock().unwrap() = Some(port);
+        // port 0 (test) -> lấy port thật mà OS cấp
+        let actual_port = listener.local_addr().map(|a| a.port()).unwrap_or(port);
+        *self.server_port.lock().unwrap() = Some(actual_port);
 
         let node = self.node.clone();
         let peers = self.peers.clone();
@@ -77,7 +82,7 @@ impl P2P {
             }
         });
         *self.server_task.lock().unwrap() = Some(handle);
-        println!("[P2P] ✓ P2P server running on port {port}");
+        println!("[P2P] ✓ P2P server running on port {actual_port}");
     }
 
     /// Đóng P2P server
@@ -199,7 +204,11 @@ where
 
     // Gửi handshake (JS: cả client lẫn server đều gửi khi kết nối)
     let info = node.lock().await.get_node_info();
-    if sink.send(Message::Text(messages::handshake(&info))).await.is_err() {
+    if sink
+        .send(Message::Text(messages::handshake(&info)))
+        .await
+        .is_err()
+    {
         peers.lock().unwrap().remove(&addr);
         return;
     }
@@ -229,7 +238,10 @@ where
     }
 
     peers.lock().unwrap().remove(&addr);
-    println!("[P2P] Peer {addr} disconnected. Active peers: {}", peers.lock().unwrap().len());
+    println!(
+        "[P2P] Peer {addr} disconnected. Active peers: {}",
+        peers.lock().unwrap().len()
+    );
 }
 
 /// Dispatch message từ peer (port MessageHandler.handle + P2P._handleSyncMessage)
@@ -259,9 +271,16 @@ async fn handle_message(node: &NodeHandle, peers: &PeerMap, from_addr: &str, tex
                 let n = node.lock().await;
                 let chain = &n.blockchain.chain;
                 let end = (from_index + config::MAX_BLOCKS_PER_REQUEST).min(chain.len());
-                (chain[from_index.min(chain.len())..end].to_vec(), chain.len() - 1)
+                (
+                    chain[from_index.min(chain.len())..end].to_vec(),
+                    chain.len() - 1,
+                )
             };
-            send_to(peers, from_addr, &messages::receive_blocks(&blocks, from_index, total_height));
+            send_to(
+                peers,
+                from_addr,
+                &messages::receive_blocks(&blocks, from_index, total_height),
+            );
             println!("[P2P] Sent {} blocks to peer", blocks.len());
         }
         messages::message_type::RECEIVE_BLOCKS => {

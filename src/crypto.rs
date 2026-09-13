@@ -21,16 +21,19 @@ pub fn generate_keypair() -> (String, String) {
     let secp = Secp256k1::new();
     let mut rng = rand::thread_rng();
     let (secret_key, public_key) = secp.generate_keypair(&mut rng);
-    (hex::encode(secret_key.secret_bytes()), hex::encode(public_key.serialize()))
+    (
+        hex::encode(secret_key.secret_bytes()),
+        hex::encode(public_key.serialize()),
+    )
 }
 
 /// Ký message (bytes) bằng private key hex -> DER signature hex
 pub fn sign(private_key_hex: &str, message: &[u8]) -> Result<String, String> {
     let secp = Secp256k1::signing_only();
-    let sk_bytes = hex::decode(private_key_hex)
-        .map_err(|_| "Invalid private key hex".to_string())?;
-    let secret_key = SecretKey::from_slice(&sk_bytes)
-        .map_err(|_| "Invalid private key".to_string())?;
+    let sk_bytes =
+        hex::decode(private_key_hex).map_err(|_| "Invalid private key hex".to_string())?;
+    let secret_key =
+        SecretKey::from_slice(&sk_bytes).map_err(|_| "Invalid private key".to_string())?;
     // secp256k1 crate yêu cầu message đúng 32 bytes
     let msg = Message::from_digest_slice(&Sha256::digest(message))
         .map_err(|_| "Hash failed".to_string())?;
@@ -42,14 +45,14 @@ pub fn sign(private_key_hex: &str, message: &[u8]) -> Result<String, String> {
 pub fn verify(public_key_hex: &str, message: &[u8], signature_hex: &str) -> bool {
     let inner = || -> Result<bool, String> {
         let secp = Secp256k1::verification_only();
-        let pk_bytes = hex::decode(public_key_hex)
-            .map_err(|_| "Invalid public key hex".to_string())?;
+        let pk_bytes =
+            hex::decode(public_key_hex).map_err(|_| "Invalid public key hex".to_string())?;
         let public_key =
             PublicKey::from_slice(&pk_bytes).map_err(|_| "Invalid public key".to_string())?;
-        let sig_bytes = hex::decode(signature_hex)
-            .map_err(|_| "Invalid signature hex".to_string())?;
-        let signature = Signature::from_der(&sig_bytes)
-            .map_err(|_| "Invalid signature DER".to_string())?;
+        let sig_bytes =
+            hex::decode(signature_hex).map_err(|_| "Invalid signature hex".to_string())?;
+        let signature =
+            Signature::from_der(&sig_bytes).map_err(|_| "Invalid signature DER".to_string())?;
         let msg = Message::from_digest_slice(&Sha256::digest(message))
             .map_err(|_| "Hash failed".to_string())?;
         Ok(secp.verify_ecdsa(&msg, &signature, &public_key).is_ok())
@@ -70,8 +73,7 @@ pub fn private_to_public(private_key_hex: &str) -> Result<String, String> {
 
 /// Địa chỉ từ public key hex (dùng cho import wallet)
 pub fn address_from_public_hex(public_key_hex: &str) -> Result<String, String> {
-    let pk_bytes =
-        hex::decode(public_key_hex).map_err(|_| "Invalid public key hex".to_string())?;
+    let pk_bytes = hex::decode(public_key_hex).map_err(|_| "Invalid public key hex".to_string())?;
     let public_key =
         PublicKey::from_slice(&pk_bytes).map_err(|_| "Invalid public key".to_string())?;
     Ok(public_key_to_address(&public_key))

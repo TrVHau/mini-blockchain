@@ -80,12 +80,10 @@ impl BlockChain {
         self.chain.last().expect("chain luôn có ít nhất genesis")
     }
 
-    #[allow(dead_code)] // API port từ JS, chưa có caller
     pub fn get_block(&self, index: usize) -> Option<&Block> {
         self.chain.get(index)
     }
 
-    #[allow(dead_code)] // API port từ JS, chưa có caller
     pub fn get_block_by_hash(&self, hash: &str) -> Option<&Block> {
         self.chain.iter().find(|b| b.hash == hash)
     }
@@ -93,7 +91,11 @@ impl BlockChain {
     /// Tìm transaction theo txid
     pub fn get_transaction(&self, txid: &str) -> Option<TxInfo> {
         for block in &self.chain {
-            if let Some(tx) = block.transactions.iter().find(|t| t.txid.as_deref() == Some(txid)) {
+            if let Some(tx) = block
+                .transactions
+                .iter()
+                .find(|t| t.txid.as_deref() == Some(txid))
+            {
                 return Some(TxInfo {
                     transaction: tx.clone(),
                     block_index: block.index,
@@ -105,7 +107,10 @@ impl BlockChain {
     }
 
     pub fn get_confirmations(&self, block_index: usize) -> usize {
-        self.chain.len().saturating_sub(1).saturating_sub(block_index)
+        self.chain
+            .len()
+            .saturating_sub(1)
+            .saturating_sub(block_index)
     }
 
     pub fn is_confirmed(&self, txid: &str) -> bool {
@@ -130,7 +135,10 @@ impl BlockChain {
             self.difficulty = (self.difficulty + 1).min(config::MAX_DIFFICULTY);
             println!("[BLOCKCHAIN] Difficulty increased to {}", self.difficulty);
         } else if time_taken > time_expected * 2 {
-            self.difficulty = self.difficulty.saturating_sub(1).max(config::MIN_DIFFICULTY);
+            self.difficulty = self
+                .difficulty
+                .saturating_sub(1)
+                .max(config::MIN_DIFFICULTY);
             println!("[BLOCKCHAIN] Difficulty decreased to {}", self.difficulty);
         }
     }
@@ -154,12 +162,26 @@ impl BlockChain {
 
         let block = block.clone();
         self.chain.push(block.clone());
+        self.track_spent(&block);
         // Incremental balance update (chỉ block mới)
         self.balance_tracker.process_block(&block);
         // Xóa các transactions đã confirm khỏi mempool
         self.remove_confirmed_transactions(&block);
-        println!("[BLOCKCHAIN] ✓ Block #{} accepted and added to chain", block.index);
+        println!(
+            "[BLOCKCHAIN] ✓ Block #{} accepted and added to chain",
+            block.index
+        );
         true
+    }
+
+    /// Đánh dấu txid của các transaction trong block là đã spent
+    /// (double-spend protection — mọi đường thêm block vào chain đều qua đây).
+    fn track_spent(&mut self, block: &Block) {
+        for tx in &block.transactions {
+            if let Some(txid) = &tx.txid {
+                self.spent_txids.insert(txid.clone());
+            }
+        }
     }
 
     /// Xóa các transactions đã confirm trong block khỏi mempool
@@ -209,6 +231,10 @@ impl BlockChain {
         );
         self.chain = new_chain.to_vec();
         self.balance_tracker.update_balance(&self.chain);
+        self.spent_txids.clear();
+        for block in new_chain {
+            self.track_spent(block);
+        }
         // Reset mempool khi nhận chain mới vì các tx cũ có thể không còn valid
         self.mempool.clear();
         true
@@ -216,7 +242,12 @@ impl BlockChain {
 
     /// Thêm transaction (validate) vào mempool
     pub fn add_transaction(&mut self, tx: &Transaction) -> Result<(), String> {
-        if !validators::validate_transaction(tx, &self.balance_tracker, &self.mempool, &self.spent_txids) {
+        if !validators::validate_transaction(
+            tx,
+            &self.balance_tracker,
+            &self.mempool,
+            &self.spent_txids,
+        ) {
             return Err("Transaction validation failed".to_string());
         }
         if self.mempool.len() >= config::MAX_TRANSACTIONS_PER_BLOCK * 2 {
@@ -245,7 +276,12 @@ impl BlockChain {
     /// Trả về block CHƯA mine + difficulty hiện tại.
     pub fn prepare_block(&mut self, miner_address: &str) -> (Block, usize) {
         let pre_block = self.get_latest_block().clone();
-        let mut new_block = Block::new(pre_block.index + 1, None, &pre_block.hash, Some(miner_address.to_string()));
+        let mut new_block = Block::new(
+            pre_block.index + 1,
+            None,
+            &pre_block.hash,
+            Some(miner_address.to_string()),
+        );
 
         let mut sorted_mempool = self.mempool.clone();
         sorted_mempool.sort_by_key(|tx| std::cmp::Reverse(tx.fee));
@@ -271,8 +307,9 @@ impl BlockChain {
             .iter()
             .map(|tx| tx.txid.clone().unwrap_or_default())
             .collect();
-        self.mempool
-            .retain(|tx| !selected_keys.contains(tx.txid.as_deref().unwrap_or("")) || tx.txid.is_none());
+        self.mempool.retain(|tx| {
+            !selected_keys.contains(tx.txid.as_deref().unwrap_or("")) || tx.txid.is_none()
+        });
 
         (new_block, self.difficulty)
     }
@@ -293,12 +330,7 @@ impl BlockChain {
             return false;
         }
 
-        // Track spent transactions
-        for tx in &block.transactions {
-            if let Some(txid) = &tx.txid {
-                self.spent_txids.insert(txid.clone());
-            }
-        }
+        self.track_spent(block);
 
         self.chain.push(block.clone());
         self.balance_tracker.process_block(block);
@@ -330,7 +362,12 @@ impl BlockChain {
             for tx in &block.transactions {
                 if tx.from == address || tx.to == address {
                     history.push(HistoryEntry {
-                        history_type: if tx.from == address { "SENT" } else { "RECEIVED" }.to_string(),
+                        history_type: if tx.from == address {
+                            "SENT"
+                        } else {
+                            "RECEIVED"
+                        }
+                        .to_string(),
                         from: tx.from.clone(),
                         to: tx.to.clone(),
                         amount: tx.amount,
@@ -358,9 +395,13 @@ impl BlockChain {
         let recent = &self.chain[self.chain.len().saturating_sub(10)..];
         let mut avg_block_time = 0u64;
         if recent.len() > 1 {
-            let diffs: Vec<u64> = recent.windows(2).map(|w| w[1].timestamp.saturating_sub(w[0].timestamp)).collect();
+            let diffs: Vec<u64> = recent
+                .windows(2)
+                .map(|w| w[1].timestamp.saturating_sub(w[0].timestamp))
+                .collect();
             if !diffs.is_empty() {
-                avg_block_time = diffs.iter().sum::<u64>() / diffs.len() as u64 / 1000; // seconds
+                avg_block_time = diffs.iter().sum::<u64>() / diffs.len() as u64 / 1000;
+                // seconds
             }
         }
 
@@ -412,7 +453,14 @@ mod tests {
         (sk, pk, addr)
     }
 
-    fn signed_tx(from_sk: &str, from_pk: &str, from_addr: &str, to: &str, amount: u64, fee: u64) -> Transaction {
+    fn signed_tx(
+        from_sk: &str,
+        from_pk: &str,
+        from_addr: &str,
+        to: &str,
+        amount: u64,
+        fee: u64,
+    ) -> Transaction {
         let mut tx = Transaction::new(from_addr, to, amount, fee);
         tx.sign(from_sk, from_pk).unwrap();
         tx
@@ -520,8 +568,18 @@ mod tests {
     fn estimate_fee_math() {
         let mut bc = BlockChain::new();
         assert_eq!(bc.estimate_fee(), 0);
-        bc.mempool.push(Transaction::new(&"a".repeat(64), &"b".repeat(64), 1, 1_000_000));
-        bc.mempool.push(Transaction::new(&"a".repeat(64), &"b".repeat(64), 1, 2_000_000));
+        bc.mempool.push(Transaction::new(
+            &"a".repeat(64),
+            &"b".repeat(64),
+            1,
+            1_000_000,
+        ));
+        bc.mempool.push(Transaction::new(
+            &"a".repeat(64),
+            &"b".repeat(64),
+            1,
+            2_000_000,
+        ));
         // avg = 1.5, *1.1 = 1.65 -> ceil = 1_650_000
         assert_eq!(bc.estimate_fee(), 1_650_000);
     }
@@ -530,13 +588,65 @@ mod tests {
     fn halving_via_mining() {
         let (_, _, miner_addr) = miner();
         let mut bc = BlockChain::with_difficulty(1);
-        // Mine đến block 50 (index 50) — reward phải halving còn 8 coins
+        // Mine đến block 50 (index 50) — reward phải halving còn 8 coins.
+        // ponytail: trước mỗi lần mine, lùi timestamp tip về 1 adjustment-interval
+        // (10 block * 30s) để adjust_difficulty thấy tổng thời gian ≈ target —
+        // difficulty đứng yên ở 1. Không làm vậy thì difficulty leo lên max 6
+        // và test (debug build) mine 16M hash/block, quá chậm.
+        let back = (config::DIFFICULTY_ADJUSTMENT_INTERVAL as u64) * config::TARGET_BLOCK_TIME;
         while bc.chain.len() <= config::HALVING_INTERVAL {
+            {
+                let tip = bc.chain.last_mut().unwrap();
+                tip.timestamp = util::now_ms().saturating_sub(back);
+                tip.hash = tip.calculate_hash();
+            }
             bc.mine_block(&miner_addr);
         }
         let last = bc.get_latest_block();
         assert_eq!(last.coinbase_tx.as_ref().unwrap().amount, 8_000_000);
         assert_eq!(bc.get_block_reward(), 8_000_000);
+    }
+
+    #[test]
+    fn replay_after_receive_block_rejected() {
+        let (sk_a, pk_a, addr_a) = miner();
+        let (_, _, addr_b) = miner();
+        let mut bc1 = BlockChain::with_difficulty(2);
+        bc1.mine_block(&addr_a);
+
+        let tx = signed_tx(&sk_a, &pk_a, &addr_a, &addr_b, 1_000_000, 0);
+        bc1.add_transaction(&tx).unwrap();
+        bc1.mine_block(&addr_b);
+        let block_with_tx = bc1.chain.last().unwrap().clone();
+
+        // Peer nhận block qua mạng rồi bị replay cùng tx
+        let mut bc2 = BlockChain::with_difficulty(2);
+        bc2.receive_block(&bc1.chain[1]);
+        assert!(bc2.receive_block(&block_with_tx));
+        assert!(
+            bc2.add_transaction(&tx).is_err(),
+            "replay tx đã confirm qua receive_block phải bị từ chối"
+        );
+    }
+
+    #[test]
+    fn replay_after_receive_chain_rejected() {
+        let (sk_a, pk_a, addr_a) = miner();
+        let (_, _, addr_b) = miner();
+        let mut bc1 = BlockChain::with_difficulty(2);
+        bc1.mine_block(&addr_a);
+
+        let tx = signed_tx(&sk_a, &pk_a, &addr_a, &addr_b, 1_000_000, 0);
+        bc1.add_transaction(&tx).unwrap();
+        bc1.mine_block(&addr_b);
+
+        // Peer sync chain dài hơn rồi bị replay cùng tx
+        let mut bc2 = BlockChain::with_difficulty(2);
+        assert!(bc2.receive_chain(&bc1.chain));
+        assert!(
+            bc2.add_transaction(&tx).is_err(),
+            "replay tx đã confirm qua receive_chain phải bị từ chối"
+        );
     }
 
     #[test]

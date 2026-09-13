@@ -32,7 +32,12 @@ pub struct Block {
 }
 
 impl Block {
-    pub fn new(index: usize, data: Option<String>, previous_hash: &str, miner_address: Option<String>) -> Self {
+    pub fn new(
+        index: usize,
+        data: Option<String>,
+        previous_hash: &str,
+        miner_address: Option<String>,
+    ) -> Self {
         let mut block = Self {
             index,
             data,
@@ -66,9 +71,16 @@ impl Block {
 
     /// Danh sách leaf hashes cho merkle tree (coinbase leaf đứng đầu nếu có)
     pub fn merkle_leaves(&self) -> Vec<String> {
-        let mut tx_hashes: Vec<String> = self.transactions.iter().map(|tx| tx.txid.clone().unwrap_or_else(|| tx.calculate_hash())).collect();
+        let mut tx_hashes: Vec<String> = self
+            .transactions
+            .iter()
+            .map(|tx| tx.txid.clone().unwrap_or_else(|| tx.calculate_hash()))
+            .collect();
         if let Some(coinbase) = &self.coinbase_tx {
-            let coinbase_hash = merkle::hash(&format!("{}|{}|{}", coinbase.to, coinbase.amount, self.index));
+            let coinbase_hash = merkle::hash(&format!(
+                "{}|{}|{}",
+                coinbase.to, coinbase.amount, self.index
+            ));
             tx_hashes.insert(0, coinbase_hash);
         }
         tx_hashes
@@ -98,7 +110,11 @@ impl Block {
     /// Mine block với Proof of Work
     pub fn mine_block(&mut self, difficulty: usize, miner_address: &str) {
         self.total_fees = self.transactions.iter().map(|tx| tx.fee).sum();
-        self.coinbase_tx = Some(CoinbaseTransaction::new(miner_address, self.index, self.total_fees));
+        self.coinbase_tx = Some(CoinbaseTransaction::new(
+            miner_address,
+            self.index,
+            self.total_fees,
+        ));
         // Tính merkle root sau khi có tất cả transactions
         self.merkle_root = Some(self.calculate_merkle_root());
 
@@ -169,7 +185,11 @@ impl std::fmt::Display for Block {
         };
 
         let hash_short = if self.hash.len() > 28 {
-            format!("{}...{}", &self.hash[..20], &self.hash[self.hash.len() - 8..])
+            format!(
+                "{}...{}",
+                &self.hash[..20],
+                &self.hash[self.hash.len() - 8..]
+            )
         } else {
             self.hash.clone()
         };

@@ -97,7 +97,8 @@ pub async fn sync_watchdog(node: NodeHandle, peers: PeerMap) {
         }
         println!(
             "[SYNC] ⚠ Sync timeout, retrying ({}/{})...",
-            n.sync.retry_count, config::SYNC_MAX_RETRY
+            n.sync.retry_count,
+            config::SYNC_MAX_RETRY
         );
         n.sync.last_sync_attempt = now;
 
@@ -132,7 +133,10 @@ pub async fn handle_receive_blocks(
         if n.receive_block(block) {
             added += 1;
         } else {
-            eprintln!("[SYNC] ⚠ Failed to add block #{}, stopping sync", block.index);
+            eprintln!(
+                "[SYNC] ⚠ Failed to add block #{}, stopping sync",
+                block.index
+            );
             break;
         }
     }
@@ -170,5 +174,9 @@ fn complete(n: &mut Node) {
 
 /// Trạng thái sync cho lệnh `status` / `sync`
 pub fn status(n: &Node) -> (bool, usize, u32) {
-    (n.sync.is_syncing, n.blockchain.get_latest_block().index, n.sync.retry_count)
+    (
+        n.sync.is_syncing,
+        n.blockchain.get_latest_block().index,
+        n.sync.retry_count,
+    )
 }

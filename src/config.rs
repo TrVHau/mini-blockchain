@@ -5,7 +5,7 @@
 pub const MICRO_PER_COIN: u64 = 1_000_000;
 
 // Mining Configuration
-pub const DEFAULT_DIFFICULTY: usize = 4;
+pub const DEFAULT_DIFFICULTY: usize = 2;
 pub const MIN_DIFFICULTY: usize = 1;
 pub const MAX_DIFFICULTY: usize = 6;
 
@@ -47,7 +47,9 @@ pub const MAX_BLOCKS_PER_REQUEST: usize = 50;
 /// Reward tại block height cho trước (halving mỗi HALVING_INTERVAL blocks).
 pub fn reward_at_height(height: usize) -> u64 {
     let halvings = height / HALVING_INTERVAL;
-    INITIAL_MINING_REWARD.checked_shr(halvings as u32).unwrap_or(0)
+    INITIAL_MINING_REWARD
+        .checked_shr(halvings as u32)
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

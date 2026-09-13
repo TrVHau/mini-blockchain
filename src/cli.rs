@@ -12,6 +12,7 @@ pub struct Options {
     pub node_id: String,
     pub connect: Option<String>,
     pub auto_start: bool,
+    pub rest_port: Option<u16>,
 }
 
 /// Chạy REPL. Trả về khi user gõ exit / Ctrl-C / Ctrl-D (đã cleanup + save).
@@ -21,7 +22,10 @@ pub async fn run(node: NodeHandle, p2p: Arc<P2P>, options: &Options) {
     {
         let n = node.lock().await;
         println!("  {DIM}Node: {CYAN}{}{RESET}", n.node_id);
-        println!("  {DIM}Chain: {YELLOW}{}{RESET} blocks\n", n.blockchain.chain.len());
+        println!(
+            "  {DIM}Chain: {YELLOW}{}{RESET} blocks\n",
+            n.blockchain.chain.len()
+        );
     }
 
     // Auto-start server
@@ -32,7 +36,10 @@ pub async fn run(node: NodeHandle, p2p: Arc<P2P>, options: &Options) {
     }
 
     // Sync watchdog: retry khi sync stale (thay cho setTimeout đệ quy của JS)
-    tokio::spawn(crate::p2p::sync::sync_watchdog(node.clone(), p2p.peers.clone()));
+    tokio::spawn(crate::p2p::sync::sync_watchdog(
+        node.clone(),
+        p2p.peers.clone(),
+    ));
 
     // Auto-connect
     if let Some(connect) = &options.connect {
@@ -108,7 +115,9 @@ async fn handle_command(node: &NodeHandle, p2p: &Arc<P2P>, line: &str) -> bool {
         "history" | "h" => cmd_history(node, args.first().copied().unwrap_or("")).await,
         "export" => cmd_export(node, args.first().copied().unwrap_or("")).await,
         "import" => cmd_import(node, args.first().copied().unwrap_or("")).await,
-        "wallet-delete" | "wd" => cmd_wallet_delete(node, args.first().copied().unwrap_or("")).await,
+        "wallet-delete" | "wd" => {
+            cmd_wallet_delete(node, args.first().copied().unwrap_or("")).await
+        }
 
         // ---- Transaction / Mining ----
         "send" => cmd_send(node, p2p, &args).await,
@@ -127,7 +136,10 @@ async fn handle_command(node: &NodeHandle, p2p: &Arc<P2P>, line: &str) -> bool {
         "fee" => cmd_fee(node).await,
         "reset" => cmd_reset(node).await,
 
-        other => println!("{}", util::error(&format!("Unknown command: {other}. Type 'help'."))),
+        other => println!(
+            "{}",
+            util::error(&format!("Unknown command: {other}. Type 'help'."))
+        ),
     }
     true
 }
@@ -137,39 +149,18 @@ fn print_help() {
     println!("  {BRIGHT}Network:{RESET}   open <port> | connect <host> <port> | peers | status | sync | close | disconnect [idx]");
     println!("  {BRIGHT}Wallet:{RESET}    wallet-create <name> | wallets [all] | balance <name> | address <name> | history <name>");
     println!("             export <name> | import <name> | wallet-delete <name>");
-    println!("  {BRIGHT}Mining:{RESET}    mine <wallet> | automine <wallet> [interval] | stopautomine");
+    println!(
+        "  {BRIGHT}Mining:{RESET}    mine <wallet> | automine <wallet> [interval] | stopautomine"
+    );
     println!("  {BRIGHT}Transfers:{RESET} send <from> <to> <amount> [fee]");
     println!("  {BRIGHT}Chain:{RESET}     blockchain | block <idx|hash> | latest | validate | stats | tx <txid> | mempool | fee | reset");
     println!("  {BRIGHT}Misc:{RESET}      help | exit\n");
 }
 
-// ---- Address resolution (3 tầng như JS: wallet name -> hex address -> prefix match) ----
+// ---- Address resolution (3 tầng như JS) ----
 
 async fn resolve_address(node: &NodeHandle, query: &str) -> Result<String, String> {
-    let n = node.lock().await;
-    // 1. Local wallet
-    if let Ok(addr) = n.wallets.get_address(query) {
-        return Ok(addr);
-    }
-    // 2. Full hex address
-    if util::is_valid_address(query) {
-        return Ok(query.to_string());
-    }
-    // 3. Prefix match trong balances
-    let lower = query.to_lowercase();
-    let matches: Vec<String> = n
-        .blockchain
-        .balance_tracker
-        .get_all_balances()
-        .keys()
-        .filter(|a| a.len() == 64 && a.to_lowercase().starts_with(&lower))
-        .cloned()
-        .collect();
-    match matches.len() {
-        1 => Ok(matches[0].clone()),
-        0 => Err(format!("Wallet/address not found: \"{query}\"")),
-        _ => Err(format!("Multiple addresses match \"{query}\"")),
-    }
+    node.lock().await.resolve_address(query)
 }
 
 // ---- Network commands ----
@@ -206,7 +197,10 @@ fn cmd_peers(p2p: &Arc<P2P>) {
         .enumerate()
         .map(|(i, addr)| format!("{CYAN}{}.{RESET} {GREEN}{addr}{RESET} [connected]", i + 1))
         .collect();
-    println!("\n{}", util::box_lines(&lines, &format!("Peers ({})", peers.len()), 50));
+    println!(
+        "\n{}",
+        util::box_lines(&lines, &format!("Peers ({})", peers.len()), 50)
+    );
 }
 
 async fn cmd_status(node: &NodeHandle, p2p: &Arc<P2P>) {
@@ -216,20 +210,42 @@ async fn cmd_status(node: &NodeHandle, p2p: &Arc<P2P>) {
     let lines = vec![
         util::key_value(
             "Server",
-            &server.map_or(format!("{RED}Offline{RESET}"), |p| format!("{GREEN}:{p}{RESET}")),
+            &server.map_or(format!("{RED}Offline{RESET}"), |p| {
+                format!("{GREEN}:{p}{RESET}")
+            }),
         ),
-        util::key_value("Peers", &format!("{YELLOW}{}{RESET} connected", p2p.get_peers().len())),
+        util::key_value(
+            "Peers",
+            &format!("{YELLOW}{}{RESET} connected", p2p.get_peers().len()),
+        ),
         util::key_value(
             "Syncing",
-            &if syncing { format!("{YELLOW}Yes{RESET}") } else { format!("{GREEN}No{RESET}") },
+            &if syncing {
+                format!("{YELLOW}Yes{RESET}")
+            } else {
+                format!("{GREEN}No{RESET}")
+            },
         ),
         util::divider(35),
-        util::key_value("Blocks", &format!("{CYAN}{}{RESET}", n.blockchain.chain.len())),
-        util::key_value("Difficulty", &format!("{MAGENTA}{}{RESET}", n.blockchain.difficulty)),
-        util::key_value("Mempool", &format!("{YELLOW}{}{RESET} tx", n.blockchain.mempool.len())),
+        util::key_value(
+            "Blocks",
+            &format!("{CYAN}{}{RESET}", n.blockchain.chain.len()),
+        ),
+        util::key_value(
+            "Difficulty",
+            &format!("{MAGENTA}{}{RESET}", n.blockchain.difficulty),
+        ),
+        util::key_value(
+            "Mempool",
+            &format!("{YELLOW}{}{RESET} tx", n.blockchain.mempool.len()),
+        ),
         util::key_value(
             "Valid",
-            &if n.blockchain.is_chain_valid() { format!("{GREEN}Yes{RESET}") } else { format!("{RED}No{RESET}") },
+            &if n.blockchain.is_chain_valid() {
+                format!("{GREEN}Yes{RESET}")
+            } else {
+                format!("{RED}No{RESET}")
+            },
         ),
     ];
     println!("\n{}", util::box_lines(&lines, "Status", 50));
@@ -249,7 +265,10 @@ async fn cmd_sync(node: &NodeHandle, p2p: &Arc<P2P>) {
 fn cmd_disconnect(p2p: &Arc<P2P>, args: &[&str]) {
     match args.first().and_then(|i| i.parse::<usize>().ok()) {
         Some(index) => match p2p.disconnect_peer(index) {
-            Ok(_) => println!("{}", util::success(&format!("Disconnected from peer {index}"))),
+            Ok(_) => println!(
+                "{}",
+                util::success(&format!("Disconnected from peer {index}"))
+            ),
             Err(e) => println!("{}", util::error(&e)),
         },
         None => {
@@ -268,7 +287,10 @@ async fn cmd_wallet_create(node: &NodeHandle, args: &[&str]) {
         Ok(address) => {
             let lines = vec![
                 util::key_value("Name", &format!("{CYAN}{name}{RESET}")),
-                util::key_value("Address", &format!("{YELLOW}{}{RESET}", util::shorten_address(&address))),
+                util::key_value(
+                    "Address",
+                    &format!("{YELLOW}{}{RESET}", util::shorten_address(&address)),
+                ),
             ];
             println!("\n{}", util::box_lines(&lines, "💰 Wallet Created", 50));
             println!("{}\n", util::success("Wallet created successfully!"));
@@ -311,7 +333,10 @@ async fn cmd_wallets(node: &NodeHandle, args: &[&str]) {
     } else {
         let wallets = n.wallets.list_wallets();
         if wallets.is_empty() {
-            println!("{}", util::warning("No wallets found. Create one with: wallet-create <name>"));
+            println!(
+                "{}",
+                util::warning("No wallets found. Create one with: wallet-create <name>")
+            );
             return;
         }
         let lines: Vec<String> = wallets
@@ -330,7 +355,11 @@ async fn cmd_wallets(node: &NodeHandle, args: &[&str]) {
             .collect();
         println!(
             "\n{}",
-            util::box_lines(&lines, &format!("💰 Managed Wallets ({})", wallets.len()), 50)
+            util::box_lines(
+                &lines,
+                &format!("💰 Managed Wallets ({})", wallets.len()),
+                50
+            )
         );
     }
 }
@@ -343,13 +372,24 @@ async fn cmd_balance(node: &NodeHandle, args: &[&str]) {
             let balance = n.blockchain.get_balance(&address);
             let lines = vec![
                 util::key_value("Wallet", &format!("{BRIGHT}{name}{RESET}")),
-                util::key_value("Address", &format!("{DIM}{}{RESET}", util::shorten_address(&address))),
+                util::key_value(
+                    "Address",
+                    &format!("{DIM}{}{RESET}", util::shorten_address(&address)),
+                ),
                 util::divider(35),
-                util::key_value("Balance", &format!("{GREEN}💎 {}{RESET} coins", util::fmt_micro_i(balance))),
+                util::key_value(
+                    "Balance",
+                    &format!("{GREEN}💎 {}{RESET} coins", util::fmt_micro_i(balance)),
+                ),
             ];
             println!("\n{}", util::box_lines(&lines, "💰 Balance", 40));
         }
-        Err(_) => println!("{}", util::error(&format!("Error checking balance: Wallet \"{name}\" not found"))),
+        Err(_) => println!(
+            "{}",
+            util::error(&format!(
+                "Error checking balance: Wallet \"{name}\" not found"
+            ))
+        ),
     }
 }
 
@@ -382,7 +422,10 @@ async fn cmd_history(node: &NodeHandle, name: &str) {
     };
 
     if history.is_empty() {
-        println!("{}", util::info(&format!("No transactions found for {name}")));
+        println!(
+            "{}",
+            util::info(&format!("No transactions found for {name}"))
+        );
         return;
     }
 
@@ -400,26 +443,53 @@ async fn cmd_history(node: &NodeHandle, name: &str) {
             (GREEN, "+")
         };
         println!("  {DIM}{}.{RESET} {icon} {}", i + 1, tx.history_type);
-        println!("     {DIM}Date:{RESET} {}", util::fmt_timestamp(tx.timestamp));
+        println!(
+            "     {DIM}Date:{RESET} {}",
+            util::fmt_timestamp(tx.timestamp)
+        );
         if tx.history_type != "MINING_REWARD" {
             println!("     {DIM}From:{RESET} {}", util::shorten_address(&tx.from));
             println!("     {DIM}To:{RESET}   {}", util::shorten_address(&tx.to));
         }
-        println!("     {DIM}Amount:{RESET} {color}{sign}{}{RESET} coins", util::fmt_micro(tx.amount));
+        println!(
+            "     {DIM}Amount:{RESET} {color}{sign}{}{RESET} coins",
+            util::fmt_micro(tx.amount)
+        );
         if tx.fee > 0 {
-            println!("     {DIM}Fee:{RESET} {YELLOW}{}{RESET}", util::fmt_micro(tx.fee));
+            println!(
+                "     {DIM}Fee:{RESET} {YELLOW}{}{RESET}",
+                util::fmt_micro(tx.fee)
+            );
         }
         println!("     {DIM}Block:{RESET} #{}", tx.block_index);
         println!("{}", util::divider(50));
     }
 
-    let received: u64 = history.iter().filter(|t| t.history_type != "SENT").map(|t| t.amount).sum();
-    let sent: u64 = history.iter().filter(|t| t.history_type == "SENT").map(|t| t.amount).sum();
-    let fees: u64 = history.iter().filter(|t| t.history_type == "SENT").map(|t| t.fee).sum();
+    let received: u64 = history
+        .iter()
+        .filter(|t| t.history_type != "SENT")
+        .map(|t| t.amount)
+        .sum();
+    let sent: u64 = history
+        .iter()
+        .filter(|t| t.history_type == "SENT")
+        .map(|t| t.amount)
+        .sum();
+    let fees: u64 = history
+        .iter()
+        .filter(|t| t.history_type == "SENT")
+        .map(|t| t.fee)
+        .sum();
     println!("\n  {BRIGHT}Summary:{RESET}");
-    println!("  {GREEN}Total Received: +{}{RESET} coins", util::fmt_micro(received));
+    println!(
+        "  {GREEN}Total Received: +{}{RESET} coins",
+        util::fmt_micro(received)
+    );
     println!("  {RED}Total Sent: -{}{RESET} coins", util::fmt_micro(sent));
-    println!("  {YELLOW}Total Fees: -{}{RESET} coins\n", util::fmt_micro(fees));
+    println!(
+        "  {YELLOW}Total Fees: -{}{RESET} coins\n",
+        util::fmt_micro(fees)
+    );
 }
 
 async fn cmd_export(node: &NodeHandle, name: &str) {
@@ -429,7 +499,10 @@ async fn cmd_export(node: &NodeHandle, name: &str) {
             println!("\n{RED}⚠ WARNING: KEEP THIS PRIVATE KEY SECRET!{RESET}");
             println!("{DIM}Anyone with this key can steal your coins.{RESET}\n");
             println!("{CYAN}Wallet:{RESET} {name}");
-            println!("{CYAN}Address:{RESET} {}\n", util::shorten_address(&address));
+            println!(
+                "{CYAN}Address:{RESET} {}\n",
+                util::shorten_address(&address)
+            );
             println!("{YELLOW}Private Key (hex):{RESET}");
             println!("{DIM}{sk}{RESET}");
         }
@@ -441,7 +514,10 @@ async fn cmd_import(node: &NodeHandle, name: &str) {
     {
         let n = node.lock().await;
         if n.wallets.has_wallet(name) {
-            println!("{}", util::error(&format!("Wallet \"{name}\" already exists")));
+            println!(
+                "{}",
+                util::error(&format!("Wallet \"{name}\" already exists"))
+            );
             return;
         }
     }
@@ -504,7 +580,10 @@ async fn cmd_send(node: &NodeHandle, p2p: &Arc<P2P>, args: &[&str]) {
         ) {
             (Ok(a), Ok(sk), Ok(pk)) => (a, sk, pk),
             _ => {
-                println!("{}", util::error(&format!("Sender wallet \"{from}\" not found")));
+                println!(
+                    "{}",
+                    util::error(&format!("Sender wallet \"{from}\" not found"))
+                );
                 return;
             }
         }
@@ -558,12 +637,27 @@ async fn cmd_send(node: &NodeHandle, p2p: &Arc<P2P>, args: &[&str]) {
         util::key_value("From", &format!("{CYAN}{from}{RESET}")),
         util::key_value("To", &format!("{CYAN}{to_display}{RESET}")),
         util::divider(35),
-        util::key_value("Amount", &format!("{YELLOW}{}{RESET} coins", util::fmt_micro(amount))),
-        util::key_value("Fee", &format!("{DIM}{}{RESET} coins", util::fmt_micro(fee))),
-        util::key_value("Total", &format!("{RED}-{}{RESET} coins", util::fmt_micro(amount + fee))),
+        util::key_value(
+            "Amount",
+            &format!("{YELLOW}{}{RESET} coins", util::fmt_micro(amount)),
+        ),
+        util::key_value(
+            "Fee",
+            &format!("{DIM}{}{RESET} coins", util::fmt_micro(fee)),
+        ),
+        util::key_value(
+            "Total",
+            &format!("{RED}-{}{RESET} coins", util::fmt_micro(amount + fee)),
+        ),
     ];
-    println!("\n{}", util::box_lines(&lines, "📤 Transaction Created", 40));
-    println!("{}", util::success(&format!("Broadcasted to {} peer(s)", p2p.get_peers().len())));
+    println!(
+        "\n{}",
+        util::box_lines(&lines, "📤 Transaction Created", 40)
+    );
+    println!(
+        "{}",
+        util::success(&format!("Broadcasted to {} peer(s)", p2p.get_peers().len()))
+    );
     println!("{}\n", util::info("Wait for it to be mined into a block."));
 }
 
@@ -580,22 +674,37 @@ async fn cmd_mine(node: &NodeHandle, p2p: &Arc<P2P>, wallet: &str) {
 
     // PoW chạy ngoài lock — node vẫn phản hồi các lệnh khác trong lúc mine
     let Some(block) = crate::node::mine_block(node, &miner_address).await else {
-        println!("{}", util::warning("Chain changed while mining — transactions returned to mempool"));
+        println!(
+            "{}",
+            util::warning("Chain changed while mining — transactions returned to mempool")
+        );
         return;
     };
 
     let lines = vec![
         util::key_value("Block", &format!("#{CYAN}{}{RESET}", block.index)),
-        util::key_value("Transactions", &format!("{YELLOW}{}{RESET}", block.transactions.len())),
+        util::key_value(
+            "Transactions",
+            &format!("{YELLOW}{}{RESET}", block.transactions.len()),
+        ),
         util::key_value("Nonce", &format!("{DIM}{}{RESET}", block.nonce)),
-        util::key_value("Hash", &format!("{DIM}{}{RESET}", util::prefix(&block.hash, 16))),
+        util::key_value(
+            "Hash",
+            &format!("{DIM}{}{RESET}", util::prefix(&block.hash, 16)),
+        ),
     ];
     println!("\n{}", util::box_lines(&lines, "⛏ Block Mined", 45));
     let reward = block.coinbase_tx.as_ref().map(|c| c.amount).unwrap_or(0);
-    println!("{}", util::success(&format!("Reward: {} coins", util::fmt_micro(reward))));
+    println!(
+        "{}",
+        util::success(&format!("Reward: {} coins", util::fmt_micro(reward)))
+    );
 
     p2p.broadcast(&messages::new_block(&block));
-    println!("{}\n", util::info(&format!("Broadcasted to {} peer(s)", p2p.get_peers().len())));
+    println!(
+        "{}\n",
+        util::info(&format!("Broadcasted to {} peer(s)", p2p.get_peers().len()))
+    );
 }
 
 async fn cmd_automine(node: &NodeHandle, p2p: &Arc<P2P>, args: &[&str]) {
@@ -624,7 +733,12 @@ async fn cmd_automine(node: &NodeHandle, p2p: &Arc<P2P>, args: &[&str]) {
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(10);
     let display = util::shorten_address(&miner_address);
-    println!("{}", util::success(&format!("Auto-mine started for {display} (every {interval}s)")));
+    println!(
+        "{}",
+        util::success(&format!(
+            "Auto-mine started for {display} (every {interval}s)"
+        ))
+    );
     println!("{}\n", util::info("Run 'automine' again to stop"));
 
     n.auto_mine = Some((miner_address, interval));
@@ -637,7 +751,9 @@ async fn auto_mine_task(node: NodeHandle, p2p: Arc<P2P>) {
     loop {
         let interval = {
             let n = node.lock().await;
-            let Some((_, interval)) = n.auto_mine.clone() else { break };
+            let Some((_, interval)) = n.auto_mine.clone() else {
+                break;
+            };
             interval
         };
         tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
@@ -650,7 +766,13 @@ async fn auto_mine_task(node: NodeHandle, p2p: Arc<P2P>) {
             if n.blockchain.mempool.is_empty() {
                 continue;
             }
-            println!("{}", util::info(&format!("Auto-mining {} pending tx(s)...", n.blockchain.mempool.len())));
+            println!(
+                "{}",
+                util::info(&format!(
+                    "Auto-mining {} pending tx(s)...",
+                    n.blockchain.mempool.len()
+                ))
+            );
             let miner = n.auto_mine.as_ref().unwrap().0.clone();
             drop(n);
             match crate::node::mine_block(&node, &miner).await {
@@ -661,7 +783,11 @@ async fn auto_mine_task(node: NodeHandle, p2p: Arc<P2P>) {
         let reward = block.coinbase_tx.as_ref().map(|c| c.amount).unwrap_or(0);
         println!(
             "{}",
-            util::success(&format!("Block #{} mined! Reward: {} coins", block.index, util::fmt_micro(reward)))
+            util::success(&format!(
+                "Block #{} mined! Reward: {} coins",
+                block.index,
+                util::fmt_micro(reward)
+            ))
         );
         p2p.broadcast(&messages::new_block(&block));
     }
@@ -682,7 +808,10 @@ async fn cmd_stop_automine(node: &NodeHandle) {
 
 async fn cmd_blockchain(node: &NodeHandle) {
     let n = node.lock().await;
-    println!("\n{CYAN}⛓ Blockchain ({} blocks){RESET}\n", n.blockchain.chain.len());
+    println!(
+        "\n{CYAN}⛓ Blockchain ({} blocks){RESET}\n",
+        n.blockchain.chain.len()
+    );
     for block in &n.blockchain.chain {
         println!("{block}");
     }
@@ -690,24 +819,34 @@ async fn cmd_blockchain(node: &NodeHandle) {
 
 async fn cmd_block(node: &NodeHandle, query: &str) {
     let n = node.lock().await;
-    let chain = &n.blockchain.chain;
 
     // Thử index trước
     if let Ok(index) = query.parse::<usize>() {
-        if index < chain.len() {
-            println!("\n{}", chain[index]);
+        if let Some(block) = n.blockchain.get_block(index) {
+            println!("\n{block}");
             return;
         }
     }
-    // Thử hash prefix
+    // Thử hash: đầy đủ trước, rồi prefix
     if query.bytes().all(|b| b.is_ascii_hexdigit()) && !query.is_empty() {
         let lower = query.to_lowercase();
-        let matches: Vec<&crate::blockchain::block::Block> =
-            chain.iter().filter(|b| b.hash.to_lowercase().starts_with(&lower)).collect();
+        if let Some(block) = n.blockchain.get_block_by_hash(&lower) {
+            println!("\n{block}");
+            return;
+        }
+        let matches: Vec<&crate::blockchain::block::Block> = n
+            .blockchain
+            .chain
+            .iter()
+            .filter(|b| b.hash.to_lowercase().starts_with(&lower))
+            .collect();
         match matches.len() {
             1 => println!("\n{}", matches[0]),
             n if n > 1 => {
-                println!("{}", util::warning(&format!("Multiple blocks match \"{query}\":")));
+                println!(
+                    "{}",
+                    util::warning(&format!("Multiple blocks match \"{query}\":"))
+                );
                 for b in matches {
                     println!("  #{}: {}", b.index, util::prefix(&b.hash, 20));
                 }
@@ -715,7 +854,10 @@ async fn cmd_block(node: &NodeHandle, query: &str) {
             _ => println!("{}", util::error(&format!("Block not found: \"{query}\""))),
         }
     } else {
-        println!("{}", util::error("Invalid query. Use block index or hash prefix."));
+        println!(
+            "{}",
+            util::error("Invalid query. Use block index or hash prefix.")
+        );
     }
 }
 
@@ -742,16 +884,41 @@ async fn cmd_stats(node: &NodeHandle) {
 
     println!("\n{CYAN}⛓ Blockchain Statistics{RESET}");
     println!("{}", util::divider(29));
-    println!("  Height:          {YELLOW}{}{RESET} blocks", stats.total_blocks);
+    println!(
+        "  Height:          {YELLOW}{}{RESET} blocks",
+        stats.total_blocks
+    );
     println!("  Difficulty:      {YELLOW}{}{RESET}", stats.difficulty);
     println!("  Pending TX:      {YELLOW}{}{RESET}", stats.mempool_size);
-    println!("  Total TX:        {YELLOW}{}{RESET}", stats.total_transactions);
-    println!("  Total Coins:     {GREEN}{}{RESET} coins", util::fmt_micro_i(stats.total_coins));
-    println!("  Block Reward:    {GREEN}{}{RESET} coins", util::fmt_micro(reward));
-    println!("  Estimated Fee:   {GREEN}{}{RESET} coins", util::fmt_micro(fee));
-    println!("  Avg Block Time:  {YELLOW}{}{RESET}s", stats.avg_block_time);
+    println!(
+        "  Total TX:        {YELLOW}{}{RESET}",
+        stats.total_transactions
+    );
+    println!(
+        "  Total Coins:     {GREEN}{}{RESET} coins",
+        util::fmt_micro_i(stats.total_coins)
+    );
+    println!(
+        "  Block Reward:    {GREEN}{}{RESET} coins",
+        util::fmt_micro(reward)
+    );
+    println!(
+        "  Estimated Fee:   {GREEN}{}{RESET} coins",
+        util::fmt_micro(fee)
+    );
+    println!(
+        "  Avg Block Time:  {YELLOW}{}{RESET}s",
+        stats.avg_block_time
+    );
     println!("  Spent TX:        {DIM}{}{RESET}", stats.spent_tx_count);
-    println!("  Valid:           {}", if valid { format!("{GREEN}✓{RESET}") } else { format!("{RED}✗{RESET}") });
+    println!(
+        "  Valid:           {}",
+        if valid {
+            format!("{GREEN}✓{RESET}")
+        } else {
+            format!("{RED}✗{RESET}")
+        }
+    );
     println!();
 }
 
@@ -765,11 +932,11 @@ async fn cmd_tx(node: &NodeHandle, query: &str) {
         }
         let lower = query.to_lowercase();
         for block in &n.blockchain.chain {
-            if let Some(tx) = block
-                .transactions
-                .iter()
-                .find(|t| t.txid.as_deref().is_some_and(|id| id.to_lowercase().starts_with(&lower)))
-            {
+            if let Some(tx) = block.transactions.iter().find(|t| {
+                t.txid
+                    .as_deref()
+                    .is_some_and(|id| id.to_lowercase().starts_with(&lower))
+            }) {
                 return n.blockchain.get_transaction(tx.txid.as_deref().unwrap());
             }
         }
@@ -777,22 +944,50 @@ async fn cmd_tx(node: &NodeHandle, query: &str) {
     });
 
     match result {
-        None => println!("{}", util::error(&format!("Transaction not found: {query}"))),
+        None => println!(
+            "{}",
+            util::error(&format!("Transaction not found: {query}"))
+        ),
         Some(info) => {
-            let confirmed = n.blockchain.is_confirmed(info.transaction.txid.as_deref().unwrap_or(""));
-            let conf_color = if info.confirmations >= 6 { GREEN } else { YELLOW };
+            let confirmed = n
+                .blockchain
+                .is_confirmed(info.transaction.txid.as_deref().unwrap_or(""));
+            let conf_color = if info.confirmations >= 6 {
+                GREEN
+            } else {
+                YELLOW
+            };
             println!("\n{CYAN}📜 Transaction Details{RESET}");
             println!("{}", util::divider(29));
-            println!("  TxID:          {YELLOW}{}{RESET}", info.transaction.txid.as_deref().unwrap_or(""));
+            println!(
+                "  TxID:          {YELLOW}{}{RESET}",
+                info.transaction.txid.as_deref().unwrap_or("")
+            );
             println!("  Block:         {CYAN}#{}{RESET}", info.block_index);
-            println!("  From:          {}", util::prefix(&info.transaction.from, 16));
-            println!("  To:            {}", util::prefix(&info.transaction.to, 16));
-            println!("  Amount:        {GREEN}{}{RESET} coins", util::fmt_micro(info.transaction.amount));
-            println!("  Fee:           {YELLOW}{}{RESET} coins", util::fmt_micro(info.transaction.fee));
+            println!(
+                "  From:          {}",
+                util::prefix(&info.transaction.from, 16)
+            );
+            println!(
+                "  To:            {}",
+                util::prefix(&info.transaction.to, 16)
+            );
+            println!(
+                "  Amount:        {GREEN}{}{RESET} coins",
+                util::fmt_micro(info.transaction.amount)
+            );
+            println!(
+                "  Fee:           {YELLOW}{}{RESET} coins",
+                util::fmt_micro(info.transaction.fee)
+            );
             println!("  Confirmations: {conf_color}{}{RESET}", info.confirmations);
             println!(
                 "  Status:        {}",
-                if confirmed { format!("{GREEN}Confirmed ✓{RESET}") } else { format!("{YELLOW}Pending{RESET}") }
+                if confirmed {
+                    format!("{GREEN}Confirmed ✓{RESET}")
+                } else {
+                    format!("{YELLOW}Pending{RESET}")
+                }
             );
             println!();
         }
@@ -824,7 +1019,13 @@ async fn cmd_mempool(node: &NodeHandle) {
 async fn cmd_fee(node: &NodeHandle) {
     let n = node.lock().await;
     let fee = n.blockchain.estimate_fee();
-    println!("{}", util::info(&format!("Estimated fee: {GREEN}{}{RESET} coins", util::fmt_micro(fee))));
+    println!(
+        "{}",
+        util::info(&format!(
+            "Estimated fee: {GREEN}{}{RESET} coins",
+            util::fmt_micro(fee)
+        ))
+    );
 }
 
 async fn cmd_reset(node: &NodeHandle) {

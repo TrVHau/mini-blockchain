@@ -2,7 +2,7 @@
 //! Keys lưu hex (thay PEM của JS).
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -74,13 +74,17 @@ pub struct WalletManager {
 }
 
 impl WalletManager {
-    pub fn new(node_id: &str) -> Self {
+    /// Base dir tùy chỉnh (test truyền temp dir, không đụng `data/` của repo)
+    pub fn with_base_dir(base: &Path, node_id: &str) -> Self {
         let wallet_dir = if node_id == "default" {
-            PathBuf::from("data")
+            base.to_path_buf()
         } else {
-            PathBuf::from("data").join("nodes").join(node_id).join("wallets")
+            base.join("nodes").join(node_id).join("wallets")
         };
-        let mut manager = Self { wallets: HashMap::new(), wallet_dir };
+        let mut manager = Self {
+            wallets: HashMap::new(),
+            wallet_dir,
+        };
         let _ = std::fs::create_dir_all(&manager.wallet_dir);
         manager.load_all_wallets();
         manager
@@ -94,7 +98,11 @@ impl WalletManager {
         }
         let (private_key, public_key) = crypto::generate_keypair();
         let address = crypto::address_from_public_hex(&public_key)?;
-        let wallet = Wallet { public_key, private_key, address: address.clone() };
+        let wallet = Wallet {
+            public_key,
+            private_key,
+            address: address.clone(),
+        };
         self.wallets.insert(name.to_string(), wallet.clone());
         self.save_wallet_file(name, &wallet)?;
         Ok(address)
@@ -148,7 +156,9 @@ impl WalletManager {
     }
 
     fn get(&self, name: &str) -> Result<&Wallet, String> {
-        self.wallets.get(name).ok_or_else(|| "Wallet not found".to_string())
+        self.wallets
+            .get(name)
+            .ok_or_else(|| "Wallet not found".to_string())
     }
 
     fn save_wallet_file(&self, name: &str, wallet: &Wallet) -> Result<(), String> {
@@ -186,7 +196,7 @@ mod tests {
     use crate::blockchain::transaction::Transaction;
 
     fn addr(tag: char) -> String {
-        std::iter::repeat(tag).take(64).collect()
+        std::iter::repeat_n(tag, 64).collect()
     }
 
     #[test]
@@ -206,25 +216,23 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("mbc-wallet-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        std::env::set_current_dir(&dir).unwrap();
 
-        let mut wm = WalletManager::new("default");
+        let mut wm = WalletManager::with_base_dir(&dir, "default");
         let address = wm.create_wallet("alice").unwrap();
         assert_eq!(address.len(), 64);
         assert!(wm.has_wallet("alice"));
         let sk = wm.get_private_key("alice").unwrap();
 
         // Reload từ disk
-        let wm2 = WalletManager::new("default");
+        let wm2 = WalletManager::with_base_dir(&dir, "default");
         assert!(wm2.has_wallet("alice"));
         assert_eq!(wm2.get_address("alice").unwrap(), address);
 
         // Import từ private key
-        let mut wm3 = WalletManager::new("default");
+        let mut wm3 = WalletManager::with_base_dir(&dir, "default");
         let imported = wm3.import_wallet("bob", &sk).unwrap();
         assert_eq!(imported, address);
 
-        std::env::set_current_dir("/").ok();
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

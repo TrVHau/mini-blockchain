@@ -17,6 +17,7 @@ rand = "0.8"
 hex = "0.4"
 rustyline = "14"
 chrono = "0.4"
+axum = "0.8"
 
 # Mining là hot path — tối ưu release
 [profile.release]

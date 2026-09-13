@@ -12,7 +12,9 @@ pub fn hash_pair(left: &str, right: &str) -> String {
 }
 
 fn pad_odd(level: &mut Vec<String>) {
-    if !level.len().is_multiple_of(2) {
+    // Level 1 phần tử ĐÃ là root — pad nó sẽ tạo vòng lặp vô hạn
+    // trong calculate_root/get_proof (reduce về 1 rồi pad lên 2 mãi).
+    if level.len() > 1 && !level.len().is_multiple_of(2) {
         if let Some(last) = level.last() {
             let last = last.clone();
             level.push(last);

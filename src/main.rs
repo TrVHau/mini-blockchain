@@ -1,6 +1,7 @@
 //! Mini Blockchain (Rust) — port từ mini-blockchain JS.
 //! Usage: mini-blockchain-rs [-n <node_id>] [-p <port>] [-c <host:port>] [-a] [-h]
 
+mod api;
 mod blockchain;
 mod cli;
 mod config;
@@ -27,6 +28,7 @@ Options:
   -n, --node <id>        Node ID for persistent storage
   -c, --connect <addr>   Connect to peer (format: host:port)
   -a, --auto             Auto-start server on the specified port
+  -r, --rest <port>      Start REST API server on 127.0.0.1:<port>
   -h, --help             Show this help message
 
 Examples:
@@ -35,6 +37,9 @@ Examples:
 
   # Start node 2 on port 3001 and connect to node 1
   mini-blockchain-rs -n node2 -p 3001 -a -c localhost:3000
+
+  # Start node with REST API on port 8080
+  mini-blockchain-rs -n node1 -p 3000 -a -r 8080
 "#;
 
 fn main() {
@@ -44,6 +49,7 @@ fn main() {
         node_id: "default".to_string(),
         connect: None,
         auto_start: false,
+        rest_port: None,
     };
 
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -81,6 +87,16 @@ fn main() {
                 options.connect = Some(value_of(&args, arg, &mut i)); // format: host:port
             }
             "-a" | "--auto" => options.auto_start = true,
+            "-r" | "--rest" => {
+                let v = value_of(&args, arg, &mut i);
+                match v.parse::<u16>() {
+                    Ok(p) => options.rest_port = Some(p),
+                    Err(_) => {
+                        eprintln!("Invalid REST port: {v}. Use -h for help.");
+                        std::process::exit(1);
+                    }
+                }
+            }
             "-h" | "--help" => {
                 println!("{HELP}");
                 std::process::exit(0);
@@ -102,6 +118,9 @@ fn main() {
     runtime.block_on(async move {
         let node: NodeHandle = Arc::new(tokio::sync::Mutex::new(Node::new(&options.node_id)));
         let p2p = P2P::new(node.clone());
+        if let Some(port) = options.rest_port {
+            tokio::spawn(api::serve(node.clone(), p2p.clone(), port));
+        }
         cli::run(node, p2p, &options).await;
     });
 }

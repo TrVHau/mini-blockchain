@@ -11,10 +11,13 @@ pub struct Storage {
 }
 
 impl Storage {
-    pub fn new(node_id: &str) -> Self {
-        let data_dir = PathBuf::from("data").join("nodes").join(node_id);
+    pub fn with_base_dir(base: &std::path::Path, node_id: &str) -> Self {
+        let data_dir = base.join("nodes").join(node_id);
         let _ = std::fs::create_dir_all(&data_dir);
-        Self { node_id: node_id.to_string(), data_dir }
+        Self {
+            node_id: node_id.to_string(),
+            data_dir,
+        }
     }
 
     fn blockchain_path(&self) -> PathBuf {
@@ -47,5 +50,42 @@ impl Storage {
                 None
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::blockchain::chain::BlockChain;
+    use crate::crypto;
+
+    #[test]
+    fn save_load_roundtrip_and_corrupted_file() {
+        let dir = std::env::temp_dir().join(format!("mbc-storage-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let storage = Storage::with_base_dir(&dir, "n1");
+
+        // Chưa có file -> None
+        assert!(storage.load_blockchain().is_none());
+
+        let (_, pk) = crypto::generate_keypair();
+        let miner = crypto::address_from_public_hex(&pk).unwrap();
+        let mut bc = BlockChain::with_difficulty(1);
+        bc.mine_block(&miner);
+        assert!(storage.save_blockchain(&bc.chain));
+
+        let loaded = storage.load_blockchain().expect("load sau khi save");
+        assert_eq!(loaded.len(), bc.chain.len());
+        assert_eq!(loaded[1].hash, bc.chain[1].hash);
+
+        // File hỏng -> None (không panic)
+        std::fs::write(
+            dir.join("nodes").join("n1").join("blockchain.json"),
+            "not json",
+        )
+        .unwrap();
+        assert!(storage.load_blockchain().is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

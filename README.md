@@ -9,6 +9,7 @@ A simple blockchain for learning purposes — Rust port của [mini-blockchain](
 - Merkle tree + Merkle proof
 - Block reward có halving (16 coins, giảm 50% mỗi 50 blocks)
 - P2P qua WebSocket: handshake, partial/full sync, relay block/transaction
+- REST API (axum, bind 127.0.0.1): query chain/block/tx/balance/mempool, tạo ví, gửi tx, Merkle proof
 - Lưu trữ JSON theo node (`data/nodes/<id>/`)
 - CLI REPL với đầy đủ lệnh (gõ `help`)
 
@@ -64,6 +65,32 @@ WebSocket, JSON `{type, data}` — giữ nguyên tên message của bản JS:
 `REQUEST_BLOCKS_FROM`, `RECEIVE_BLOCKS`, `NEW_BLOCK`, `TRANSACTION`.
 
 Lưu ý: không interop với node JS (khác định dạng key/amount) — chạy mạng toàn Rust.
+
+## REST API
+
+Khởi động với flag `-r/--rest <port>` (bind `127.0.0.1`):
+
+```bash
+cargo run -- -n node1 -p 3000 -a -r 8080
+```
+
+| Endpoint | Mô tả |
+|---|---|
+| `GET /info`, `GET /stats` | trạng thái node / thống kê chain |
+| `GET /chain` | toàn bộ chain |
+| `GET /blocks/<index\|hash>` | block theo index hoặc hash |
+| `GET /blocks/<index>/proof/<txid>` | Merkle proof + verify |
+| `GET /tx/<txid>` | chi tiết transaction |
+| `GET /mempool`, `GET /fee` | tx đang chờ / ước tính fee |
+| `GET /balance/<name\|address\|prefix>` | số dư (resolve như CLI) |
+| `GET /wallets`, `POST /wallets {"name"}` | danh sách ví / tạo ví (private key trả về 1 lần) |
+| `POST /transactions` | `{"from": "alice", "to": "bob", "amount": "12.5", "fee": "0.1"}` — sign + broadcast |
+
+```bash
+curl -s localhost:8080/info
+curl -s -X POST localhost:8080/wallets -d '{"name":"alice"}'
+curl -s -X POST localhost:8080/transactions -d '{"from":"alice","to":"bob","amount":"5"}'
+```
 
 ## Test
 

@@ -66,16 +66,23 @@ impl Transaction {
     /// Hash của transaction data (không bao gồm signature)
     pub fn calculate_hash(&self) -> String {
         crypto::sha256_hex(
-            format!("{}|{}|{}|{}|{}", self.from, self.to, self.amount, self.fee, self.timestamp)
-                .as_bytes(),
+            format!(
+                "{}|{}|{}|{}|{}",
+                self.from, self.to, self.amount, self.fee, self.timestamp
+            )
+            .as_bytes(),
         )
     }
 
     /// Transaction ID (hash bao gồm cả signature)
     pub fn calculate_txid(&self) -> String {
         crypto::sha256_hex(
-            format!("{}|{}", self.calculate_hash(), self.signature.as_deref().unwrap_or("null"))
-                .as_bytes(),
+            format!(
+                "{}|{}",
+                self.calculate_hash(),
+                self.signature.as_deref().unwrap_or("null")
+            )
+            .as_bytes(),
         )
     }
 

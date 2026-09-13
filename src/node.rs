@@ -38,7 +38,12 @@ pub struct Node {
 
 impl Node {
     pub fn new(node_id: &str) -> Self {
-        let storage = Storage::new(node_id);
+        Self::with_base_dir(std::path::Path::new("data"), node_id)
+    }
+
+    /// Base dir tùy chỉnh (test truyền temp dir, không đụng `data/` của repo)
+    pub fn with_base_dir(base: &std::path::Path, node_id: &str) -> Self {
+        let storage = Storage::with_base_dir(base, node_id);
         let mut blockchain = BlockChain::new();
 
         // Load blockchain từ storage nếu có (giống cli.js)
@@ -55,7 +60,7 @@ impl Node {
         Self {
             node_id: node_id.to_string(),
             blockchain,
-            wallets: WalletManager::new(node_id),
+            wallets: WalletManager::with_base_dir(base, node_id),
             storage,
             sync: SyncState::default(),
             auto_mine: None,
@@ -70,6 +75,33 @@ impl Node {
             latest_block_hash: latest.hash.clone(),
             mempool_size: self.blockchain.mempool.len(),
             timestamp: util::now_ms(),
+        }
+    }
+
+    /// Resolve địa chỉ 3 tầng như JS: wallet name -> hex address -> prefix match
+    pub fn resolve_address(&self, query: &str) -> Result<String, String> {
+        // 1. Local wallet
+        if let Ok(addr) = self.wallets.get_address(query) {
+            return Ok(addr);
+        }
+        // 2. Full hex address
+        if util::is_valid_address(query) {
+            return Ok(query.to_string());
+        }
+        // 3. Prefix match trong balances
+        let lower = query.to_lowercase();
+        let matches: Vec<String> = self
+            .blockchain
+            .balance_tracker
+            .get_all_balances()
+            .keys()
+            .filter(|a| a.len() == 64 && a.to_lowercase().starts_with(&lower))
+            .cloned()
+            .collect();
+        match matches.len() {
+            1 => Ok(matches[0].clone()),
+            0 => Err(format!("Wallet/address not found: \"{query}\"")),
+            _ => Err(format!("Multiple addresses match \"{query}\"")),
         }
     }
 

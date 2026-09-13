@@ -29,17 +29,27 @@ pub fn validate_tx_amount(tx: &Transaction) -> bool {
 
 pub fn validate_tx_addresses(tx: &Transaction) -> bool {
     if !util::is_valid_address(&tx.from) {
-        eprintln!("[TX_VALIDATOR] ✗ Invalid 'from' address: {}", &tx.from[..tx.from.len().min(20)]);
+        eprintln!(
+            "[TX_VALIDATOR] ✗ Invalid 'from' address: {}",
+            &tx.from[..tx.from.len().min(20)]
+        );
         return false;
     }
     if !util::is_valid_address(&tx.to) {
-        eprintln!("[TX_VALIDATOR] ✗ Invalid 'to' address: {}", &tx.to[..tx.to.len().min(20)]);
+        eprintln!(
+            "[TX_VALIDATOR] ✗ Invalid 'to' address: {}",
+            &tx.to[..tx.to.len().min(20)]
+        );
         return false;
     }
     true
 }
 
-pub fn validate_tx_balance(tx: &Transaction, balances: &BalanceTracker, mempool: &[Transaction]) -> bool {
+pub fn validate_tx_balance(
+    tx: &Transaction,
+    balances: &BalanceTracker,
+    mempool: &[Transaction],
+) -> bool {
     let current_balance = balances.get_balance(&tx.from);
     let pending: i128 = mempool
         .iter()
@@ -61,13 +71,20 @@ pub fn validate_tx_balance(tx: &Transaction, balances: &BalanceTracker, mempool:
     true
 }
 
-pub fn validate_tx_not_duplicate(tx: &Transaction, mempool: &[Transaction], spent_txids: &HashSet<String>) -> bool {
+pub fn validate_tx_not_duplicate(
+    tx: &Transaction,
+    mempool: &[Transaction],
+    spent_txids: &HashSet<String>,
+) -> bool {
     if let Some(txid) = &tx.txid {
         if spent_txids.contains(txid) {
             eprintln!("[TX_VALIDATOR] ✗ Transaction already spent (double spend)");
             return false;
         }
-        if mempool.iter().any(|m| m.txid.as_deref() == Some(txid.as_str())) {
+        if mempool
+            .iter()
+            .any(|m| m.txid.as_deref() == Some(txid.as_str()))
+        {
             eprintln!("[TX_VALIDATOR] ✗ Transaction already in mempool");
             return false;
         }
@@ -83,7 +100,12 @@ pub fn validate_tx_not_duplicate(tx: &Transaction, mempool: &[Transaction], spen
 }
 
 /// Full transaction validation
-pub fn validate_transaction(tx: &Transaction, balances: &BalanceTracker, mempool: &[Transaction], spent_txids: &HashSet<String>) -> bool {
+pub fn validate_transaction(
+    tx: &Transaction,
+    balances: &BalanceTracker,
+    mempool: &[Transaction],
+    spent_txids: &HashSet<String>,
+) -> bool {
     if !validate_tx_amount(tx) {
         return false;
     }
@@ -157,7 +179,10 @@ fn validate_timestamp(block: &Block, previous_block: Option<&Block>) -> bool {
     // Không được ở tương lai quá 2 giờ
     let max_future = util::now_ms() + 2 * 60 * 60 * 1000;
     if block.timestamp > max_future {
-        eprintln!("[BLOCK_VALIDATOR] ✗ Block #{} timestamp too far in future", block.index);
+        eprintln!(
+            "[BLOCK_VALIDATOR] ✗ Block #{} timestamp too far in future",
+            block.index
+        );
         return false;
     }
     if let Some(prev) = previous_block {
@@ -177,7 +202,10 @@ fn validate_merkle_root(block: &Block) -> bool {
         return true;
     };
     if &block.calculate_merkle_root() != merkle_root {
-        eprintln!("[BLOCK_VALIDATOR] ✗ Block #{} merkle root mismatch", block.index);
+        eprintln!(
+            "[BLOCK_VALIDATOR] ✗ Block #{} merkle root mismatch",
+            block.index
+        );
         return false;
     }
     true
@@ -185,7 +213,10 @@ fn validate_merkle_root(block: &Block) -> bool {
 
 fn validate_coinbase(block: &Block, expected_reward: u64, total_fees: u64) -> bool {
     let Some(coinbase) = &block.coinbase_tx else {
-        eprintln!("[BLOCK_VALIDATOR] ✗ Block #{} missing coinbase transaction", block.index);
+        eprintln!(
+            "[BLOCK_VALIDATOR] ✗ Block #{} missing coinbase transaction",
+            block.index
+        );
         return false;
     };
     if coinbase.amount != expected_reward.saturating_add(total_fees) {
@@ -216,7 +247,10 @@ pub fn validate_block(block: &Block, opts: &BlockValidationOptions) -> bool {
         return false;
     }
     if block.transactions.len() > opts.max_transactions {
-        eprintln!("[BLOCK_VALIDATOR] ✗ Block #{} too many transactions", block.index);
+        eprintln!(
+            "[BLOCK_VALIDATOR] ✗ Block #{} too many transactions",
+            block.index
+        );
         return false;
     }
     if !validate_merkle_root(block) {
@@ -233,7 +267,10 @@ pub fn validate_block(block: &Block, opts: &BlockValidationOptions) -> bool {
     }
     if let Some(expected_prev) = &opts.expected_previous_hash {
         if &block.previous_hash != expected_prev {
-            eprintln!("[BLOCK_VALIDATOR] ✗ Block #{} previousHash mismatch", block.index);
+            eprintln!(
+                "[BLOCK_VALIDATOR] ✗ Block #{} previousHash mismatch",
+                block.index
+            );
             return false;
         }
     }
@@ -271,4 +308,98 @@ pub fn validate_chain(chain: &[Block], difficulty: usize) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn miner() -> (String, String) {
+        let (sk, pk) = crate::crypto::generate_keypair();
+        (sk, pk)
+    }
+
+    /// Block #1 đã mine hợp lệ + opts khớp để validate nó
+    fn valid_block() -> (Block, BlockValidationOptions) {
+        let (_, pk) = miner();
+        let addr = crate::crypto::address_from_public_hex(&pk).unwrap();
+        let mut bc = crate::blockchain::chain::BlockChain::with_difficulty(2);
+        let block = bc.mine_block(&addr);
+        let opts = BlockValidationOptions {
+            difficulty: 2,
+            expected_index: Some(1),
+            expected_previous_hash: Some(bc.chain[0].hash.clone()),
+            previous_block: Some(bc.chain[0].clone()),
+            expected_reward: config::reward_at_height(1),
+            max_block_size: config::MAX_BLOCK_SIZE,
+            max_transactions: config::MAX_TRANSACTIONS_PER_BLOCK,
+        };
+        (block, opts)
+    }
+
+    /// Tamper xong thì recompute hash để đi qua được check hash, chạm đúng check đích
+    fn rehash(block: &mut Block) {
+        block.hash = block.calculate_hash();
+    }
+
+    #[test]
+    fn valid_block_passes() {
+        let (block, opts) = valid_block();
+        assert!(validate_block(&block, &opts));
+    }
+
+    #[test]
+    fn wrong_index_fails() {
+        let (mut block, mut opts) = valid_block();
+        block.index = 2;
+        rehash(&mut block);
+        opts.expected_index = Some(1);
+        assert!(!validate_block(&block, &opts));
+    }
+
+    #[test]
+    fn wrong_previous_hash_fails() {
+        let (mut block, opts) = valid_block();
+        block.previous_hash = "ff".repeat(32);
+        rehash(&mut block);
+        assert!(!validate_block(&block, &opts));
+    }
+
+    #[test]
+    fn insufficient_difficulty_fails() {
+        let (block, mut opts) = valid_block();
+        opts.difficulty = block.hash.len().min(6); // hash không thể có 6+ số 0 đầu
+        assert!(!validate_block(&block, &opts));
+    }
+
+    #[test]
+    fn tampered_merkle_root_fails() {
+        let (mut block, opts) = valid_block();
+        block.merkle_root = Some("ff".repeat(32));
+        rehash(&mut block);
+        assert!(!validate_block(&block, &opts));
+    }
+
+    #[test]
+    fn tampered_coinbase_amount_fails() {
+        let (mut block, opts) = valid_block();
+        block.coinbase_tx.as_mut().unwrap().amount += 1;
+        rehash(&mut block);
+        assert!(!validate_block(&block, &opts));
+    }
+
+    #[test]
+    fn block_too_large_fails() {
+        let (block, mut opts) = valid_block();
+        opts.max_block_size = 1;
+        assert!(!validate_block(&block, &opts));
+    }
+
+    #[test]
+    fn timestamp_in_future_fails() {
+        let (mut block, opts) = valid_block();
+        block.timestamp = util::now_ms() + 3 * 60 * 60 * 1000; // +3h
+        rehash(&mut block);
+        assert!(!validate_block(&block, &opts));
+    }
 }

@@ -46,7 +46,10 @@ pub fn request_latest() -> String {
 }
 
 pub fn request_blocks_from(from_index: usize) -> String {
-    wrap(message_type::REQUEST_BLOCKS_FROM, json!({ "fromIndex": from_index }))
+    wrap(
+        message_type::REQUEST_BLOCKS_FROM,
+        json!({ "fromIndex": from_index }),
+    )
 }
 
 pub fn receive_blocks(blocks: &[Block], from_index: usize, total_height: usize) -> String {
@@ -79,4 +82,30 @@ pub fn parse(text: &str) -> Result<(String, Value), String> {
         .to_string();
     let data = value.get("data").cloned().unwrap_or(Value::Null);
     Ok((msg_type, data))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn roundtrip_request_blocks_from() {
+        let msg = request_blocks_from(7);
+        let (msg_type, data) = parse(&msg).unwrap();
+        assert_eq!(msg_type, message_type::REQUEST_BLOCKS_FROM);
+        assert_eq!(data["fromIndex"], 7);
+    }
+
+    #[test]
+    fn parse_missing_type_is_err() {
+        assert!(parse(r#"{"data":{}}"#).is_err());
+        assert!(parse("not json").is_err());
+    }
+
+    #[test]
+    fn parse_null_data_is_ok() {
+        let (msg_type, data) = parse(&request_chain()).unwrap();
+        assert_eq!(msg_type, message_type::REQUEST_CHAIN);
+        assert!(data.is_null());
+    }
 }

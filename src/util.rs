@@ -102,7 +102,11 @@ pub fn shorten_address(address: &str) -> String {
     if address.len() <= prefix + suffix + 3 {
         return address.to_string();
     }
-    format!("{}...{}", &address[..prefix], &address[address.len() - suffix..])
+    format!(
+        "{}...{}",
+        &address[..prefix],
+        &address[address.len() - suffix..]
+    )
 }
 
 /// Prefix an toàn: n ký tự đầu + "..." — không panic khi chuỗi ngắn
@@ -123,7 +127,9 @@ pub fn is_valid_address(address: &str) -> bool {
 // ---- Validator.js ----
 
 pub fn validate_port(port: &str) -> Result<u16, String> {
-    let p: u16 = port.parse().map_err(|_| "Port must be a valid integer".to_string())?;
+    let p: u16 = port
+        .parse()
+        .map_err(|_| "Port must be a valid integer".to_string())?;
     if p == 0 {
         return Err("Port must be between 1 and 65535".to_string());
     }
@@ -131,7 +137,10 @@ pub fn validate_port(port: &str) -> Result<u16, String> {
 }
 
 pub fn is_localhost(host: &str) -> bool {
-    matches!(host.to_lowercase().as_str(), "localhost" | "127.0.0.1" | "0.0.0.0" | "::1")
+    matches!(
+        host.to_lowercase().as_str(),
+        "localhost" | "127.0.0.1" | "0.0.0.0" | "::1"
+    )
 }
 
 pub fn validate_wallet_name(name: &str) -> Result<String, String> {
@@ -175,7 +184,9 @@ pub fn coins_str_to_micro(s: &str) -> Result<u64, String> {
             return Err("At most 6 decimal places allowed".to_string());
         }
         let padded = format!("{frac_part:0<6}");
-        padded[..6].parse::<u64>().map_err(|_| "Amount must be a number".to_string())?
+        padded[..6]
+            .parse::<u64>()
+            .map_err(|_| "Amount must be a number".to_string())?
     };
     int_micro
         .checked_add(frac_micro)
