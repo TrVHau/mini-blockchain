@@ -139,6 +139,7 @@ async fn handle_command(node: &NodeHandle, p2p: &Arc<P2P>, line: &str) -> bool {
         "validate" | "v" => chain_view::cmd_validate(node).await,
         "stats" => chain_view::cmd_stats(node).await,
         "tx" => chain_view::cmd_tx(node, args.first().copied().unwrap_or("")).await,
+        "proof" => chain_view::cmd_proof(node, &args).await,
         "mempool" | "mp" => chain_view::cmd_mempool(node).await,
         "fee" => chain_view::cmd_fee(node).await,
         "reset" => chain_view::cmd_reset(node).await,
@@ -160,7 +161,7 @@ fn print_help() {
         "  {BRIGHT}Mining:{RESET}    mine <wallet> | automine <wallet> [interval] | stopautomine"
     );
     println!("  {BRIGHT}Transfers:{RESET} send <from> <to> <amount> [fee]");
-    println!("  {BRIGHT}Chain:{RESET}     blockchain | block <idx|hash> | latest | validate | stats | tx <txid> | mempool | fee | reset");
+    println!("  {BRIGHT}Chain:{RESET}     blockchain | block <idx|hash> | latest | validate | stats | tx <txid> | mempool | fee | proof <idx> <txid> | reset");
     println!("  {BRIGHT}Misc:{RESET}      help | exit\n");
 }
 

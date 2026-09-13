@@ -120,6 +120,56 @@ pub(super) async fn cmd_stats(node: &NodeHandle) {
     println!();
 }
 
+/// Merkle proof cho tx trong block: `proof <block_index> <txid>`
+pub(super) async fn cmd_proof(node: &NodeHandle, args: &[&str]) {
+    let (Some(index_str), Some(txid)) = (args.first(), args.get(1)) else {
+        println!("{}", util::error("Usage: proof <block_index> <txid>"));
+        return;
+    };
+    let Ok(index) = index_str.parse::<usize>() else {
+        println!("{}", util::error("Usage: proof <block_index> <txid>"));
+        return;
+    };
+
+    let n = node.lock().await;
+    let Some(block) = n.blockchain.get_block(index) else {
+        println!("{}", util::error(&format!("Block not found: {index}")));
+        return;
+    };
+    // Txid có thể là prefix — resolve như cmd_tx
+    let Some(tx) = block.transactions.iter().find(|t| {
+        t.txid.as_deref().is_some_and(|id| {
+            id.starts_with(txid) || id.to_lowercase().starts_with(&txid.to_lowercase())
+        })
+    }) else {
+        println!(
+            "{}",
+            util::error(&format!("Transaction not in block #{index}: {txid}"))
+        );
+        return;
+    };
+    let leaf = tx.txid.clone().unwrap_or_default();
+
+    let verified = block.verify_transaction(&leaf);
+    println!("\n{CYAN}📜 Merkle Proof{RESET}");
+    println!("{}", util::divider(35));
+    println!("  Block:       {CYAN}#{index}{RESET}");
+    println!("  TxID:        {YELLOW}{}{RESET}", util::prefix(&leaf, 20));
+    println!(
+        "  MerkleRoot:  {DIM}{}{RESET}",
+        util::prefix(block.merkle_root.as_deref().unwrap_or(""), 20)
+    );
+    println!(
+        "  Verified:    {}",
+        if verified {
+            format!("{GREEN}✓ belongs to block{RESET}")
+        } else {
+            format!("{RED}✗ NOT in block{RESET}")
+        }
+    );
+    println!();
+}
+
 pub(super) async fn cmd_tx(node: &NodeHandle, query: &str) {
     let n = node.lock().await;
 

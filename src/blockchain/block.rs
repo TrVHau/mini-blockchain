@@ -131,7 +131,6 @@ impl Block {
     /// Verify một transaction có trong block không (dùng Merkle Proof).
     /// ponytail: JS tính proof không tính coinbase leaf (bug — proof không khớp
     /// root khi có coinbase); ở đây dùng chung leaf list với root để proof chạy đúng.
-    #[allow(dead_code)] // API học tập (JS cũng chỉ expose, không gọi từ CLI)
     pub fn verify_transaction(&self, tx_hash: &str) -> bool {
         let leaves = self.merkle_leaves();
         let Some(index) = leaves.iter().position(|h| h == tx_hash) else {

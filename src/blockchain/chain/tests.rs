@@ -106,6 +106,59 @@ fn receive_chain_only_if_longer() {
 }
 
 #[test]
+fn receive_chain_from_higher_difficulty_peer() {
+    // Node A mine ở difficulty 3; node B đang ở difficulty 2 —
+    // chain của A vẫn phải được chấp nhận (difficulty suy từ chain,
+    // không tin difficulty cục bộ của node nhận)
+    let (_, _, miner_addr) = miner();
+    let mut bc_a = BlockChain::with_difficulty(3);
+    bc_a.mine_block(&miner_addr);
+    bc_a.mine_block(&miner_addr);
+
+    let mut bc_b = BlockChain::with_difficulty(2);
+    assert!(bc_b.receive_chain(&bc_a.chain));
+    assert_eq!(bc_b.chain.len(), 3);
+    // Difficulty cục bộ của B sync theo tip mới của A
+    assert_eq!(bc_b.difficulty, 3);
+
+    // Ngược lại: block có PoW yếu hơn tip -> từ chối
+    let (_, _, weak_miner) = miner();
+    let mut bc_weak = BlockChain::with_difficulty(1);
+    bc_weak.mine_block(&weak_miner);
+    // Block #1 của bc_weak chỉ có 1 số 0 đầu — không đủ difficulty 2 của bc_b
+    assert!(!bc_b.receive_block(&bc_weak.chain[1]));
+}
+
+#[test]
+fn pow_difficulty_drops_rejected_in_chain() {
+    // Chain: genesis + 2 block difficulty 2, rồi block chỉ đạt difficulty 1
+    // -> chain bị từ chối (PoW không được yếu hơn block trước)
+    let (_, _, miner_addr) = miner();
+    let mut bc = BlockChain::with_difficulty(2);
+    bc.mine_block(&miner_addr);
+    bc.mine_block(&miner_addr);
+
+    // Mine block #3 ở difficulty 1, thử lại cho đến khi hash chỉ có đúng
+    // 1 số 0 đầu (không tình cờ đạt 2+ như difficulty 2)
+    let weak;
+    loop {
+        let (mut block, _) = bc.prepare_block(&miner_addr);
+        block.mine_block(1, &miner_addr);
+        if !block.hash.starts_with("00") {
+            weak = block;
+            break;
+        }
+        // hash tình cờ đạt 2 số 0 — rollback mempool rồi mine lại
+        bc.mempool.clear();
+    }
+    assert!(weak.hash.starts_with('0'));
+
+    let mut chain = bc.chain.clone();
+    chain.push(weak);
+    assert!(!BlockChain::new().receive_chain(&chain));
+}
+
+#[test]
 fn receive_block_validates_linkage() {
     let (_, _, miner_addr) = miner();
     let mut bc1 = BlockChain::with_difficulty(2);

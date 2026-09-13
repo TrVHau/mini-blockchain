@@ -143,11 +143,14 @@ impl BlockChain {
         }
     }
 
-    /// Nhận block từ mạng — validate rồi thêm vào chain
+    /// Nhận block từ mạng — validate rồi thêm vào chain.
+    /// Difficulty kỳ vọng suy từ tip hiện tại (leading-zeros), không tin
+    /// self.difficulty cục bộ — peer có thể đã adjust khác mình.
     pub fn receive_block(&mut self, block: &Block) -> bool {
         let latest = self.get_latest_block().clone();
+        let expected = validators::pow_difficulty(&latest);
         let opts = validators::BlockValidationOptions {
-            difficulty: self.difficulty,
+            difficulty: expected,
             expected_index: Some(latest.index + 1),
             expected_previous_hash: Some(latest.hash.clone()),
             previous_block: Some(latest),
@@ -235,6 +238,9 @@ impl BlockChain {
         for block in new_chain {
             self.track_spent(block);
         }
+        // Sync difficulty cục bộ với tip của chain mới (để mine block sau
+        // tiếp nối đúng difficulty của mạng)
+        self.difficulty = validators::pow_difficulty(self.get_latest_block());
         // Reset mempool khi nhận chain mới vì các tx cũ có thể không còn valid
         self.mempool.clear();
         true
