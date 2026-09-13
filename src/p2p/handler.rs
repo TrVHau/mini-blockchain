@@ -54,21 +54,39 @@ pub(super) async fn connection_task<S>(
         let mut map = peers.lock().unwrap();
         match map.get(&addr) {
             None => {
-                map.insert(addr.clone(), PeerConn { tx, canonical: true, id });
+                map.insert(
+                    addr.clone(),
+                    PeerConn {
+                        tx,
+                        canonical: true,
+                        id,
+                    },
+                );
             }
             Some(existing) if !existing.tx.is_closed() && existing.canonical => {
                 println!("[P2P] Duplicate connection to {addr}, dropping this one");
                 return;
             }
             Some(_) => {
-                map.insert(addr.clone(), PeerConn { tx, canonical: true, id });
+                map.insert(
+                    addr.clone(),
+                    PeerConn {
+                        tx,
+                        canonical: true,
+                        id,
+                    },
+                );
             }
         }
     } else {
-        peers
-            .lock()
-            .unwrap()
-            .insert(addr.clone(), PeerConn { tx, canonical: false, id });
+        peers.lock().unwrap().insert(
+            addr.clone(),
+            PeerConn {
+                tx,
+                canonical: false,
+                id,
+            },
+        );
     }
 
     // Gửi handshake (JS: cả client lẫn server đều gửi khi kết nối)
@@ -83,7 +101,6 @@ pub(super) async fn connection_task<S>(
         remove_own(&peers, &addr, id);
         return;
     }
-
 
     loop {
         tokio::select! {
@@ -162,37 +179,55 @@ async fn handle_message(
                     .rsplit_once(':')
                     .map(|(h, _)| h)
                     .unwrap_or("127.0.0.1");
-                let new_addr = format!("{host}:{port}");
+                let new_addr = crate::p2p::canonical_addr(&format!("{host}:{port}"));
                 let mut map = peers.lock().unwrap();
                 if new_addr == from_addr {
                     // Đã là key canonical — không có gì để rekey
                     from_addr
-                } else if map.contains_key(&new_addr) {
-                    // Connection khác đã giữ key canonical (race 2 chiều connect
-                    // đồng thời, hoặc node đó đã connect tới mình trước) —
-                    // connection inbound này là bản dư
-                    handled = Handled::Duplicate;
-                    from_addr_owned = new_addr;
-                    from_addr_owned.as_str()
-                } else if let Some(conn) = map.remove(from_addr) {
-                    // Dọn key cũ trỏ connection này (ephemeral addr inbound),
-                    // insert lại key canonical — giữ id để remove_own còn
-                    // nhận ra connection này
-                    map.insert(
-                        new_addr.clone(),
-                        PeerConn {
-                            tx: conn.tx,
-                            canonical: true,
-                            id: conn.id,
-                        },
-                    );
-                    handled = Handled::Rekeyed(new_addr.clone());
-                    from_addr_owned = new_addr;
-                    from_addr_owned.as_str()
                 } else {
-                    // Key của connection này không còn (bị disconnect giữa
-                    // chừng) — channel đã đóng, task tự thoát sau message này
-                    from_addr
+                    // Key canonical đã có connection (race 2 chiều connect
+                    // nhau đồng thời). Tie-break bằng listen port để HAI PHÍA
+                    // chọn cùng một connection: port nhỏ hơn giữ outbound của
+                    // mình, port lớn hơn giữ inbound. Nếu cả hai bên cùng drop
+                    // inbound thì cả 2 connection chết, discovery connect lại,
+                    // race lại -> vòng lặp kết nối vô hạn.
+                    // ponytail: 2 node khác host trùng listen port thì cả hai
+                    // vẫn drop inbound (hiếm); thêm node_id vào handshake nếu cần
+                    let keep_inbound = map.contains_key(&new_addr)
+                        && listen_port.is_some_and(|my| my as u64 > port);
+                    if map.contains_key(&new_addr) && !keep_inbound {
+                        // Connection inbound này là bản dư
+                        handled = Handled::Duplicate;
+                        from_addr_owned = new_addr;
+                        from_addr_owned.as_str()
+                    } else {
+                        if keep_inbound {
+                            // Xóa entry outbound của mình (đóng channel ->
+                            // task đó thoát); remove_own của nó không đụng
+                            // entry mới vì id khác
+                            map.remove(&new_addr);
+                        }
+                        if let Some(conn) = map.remove(from_addr) {
+                            // Dọn key cũ trỏ connection này (ephemeral addr inbound),
+                            // insert lại key canonical — giữ id để remove_own còn
+                            // nhận ra connection này
+                            map.insert(
+                                new_addr.clone(),
+                                PeerConn {
+                                    tx: conn.tx,
+                                    canonical: true,
+                                    id: conn.id,
+                                },
+                            );
+                            handled = Handled::Rekeyed(new_addr.clone());
+                            from_addr_owned = new_addr;
+                            from_addr_owned.as_str()
+                        } else {
+                            // Key của connection này không còn (bị disconnect giữa
+                            // chừng) — channel đã đóng, task tự thoát sau message này
+                            from_addr
+                        }
+                    }
                 }
             }
             None => from_addr,
@@ -327,11 +362,12 @@ fn discover_peers(
         }
         _ => false,
     };
-    for addr in addrs {
-        if is_self(addr) || addr == from_addr {
+    for raw in addrs {
+        let addr = crate::p2p::canonical_addr(raw);
+        if is_self(&addr) || addr == from_addr {
             continue;
         }
-        if known.iter().any(|k| k == addr) {
+        if known.contains(&addr) {
             continue;
         }
         println!("[P2P] Discovered new peer: {addr}");

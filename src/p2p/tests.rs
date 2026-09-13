@@ -57,6 +57,53 @@ async fn chain_len(node: &NodeHandle) -> usize {
 }
 
 #[tokio::test]
+async fn mutual_connect_converges_to_one_connection() {
+    // A và B connect tới nhau ĐỒNG THỜI (race 2 chiều). Trước đây cả hai bên
+    // cùng drop inbound -> cả 2 connection chết -> discovery connect lại ->
+    // race lại -> vòng lặp kết nối vô hạn. Giờ phải hội tụ về đúng 1
+    // connection và ỔN ĐỊNH (không flap).
+    let a = temp_node("a");
+    let b = temp_node("b");
+    let p2p_a = P2P::new(a.clone());
+    let p2p_b = P2P::new(b.clone());
+    p2p_a.start_server(0).await;
+    p2p_b.start_server(0).await;
+    let port_a = p2p_a.server_port.lock().unwrap().expect("server A");
+    let port_b = p2p_b.server_port.lock().unwrap().expect("server B");
+
+    // B connect A bằng "localhost" — biến thể host khác "127.0.0.1" của cùng
+    // một addr, trước đây tạo 2 key khác nhau phá duplicate detection
+    let (ra, rb) = (
+        p2p_a.connect_to_peer("localhost", port_b),
+        p2p_b.connect_to_peer("127.0.0.1", port_a),
+    );
+    tokio::join!(ra, rb);
+
+    // Chờ race giải quyết rồi kiểm tra ổn định: đúng 1 peer, giữ nguyên sau 3s
+    let ok = wait_for(Duration::from_secs(10), || async {
+        p2p_a.get_peers().len() == 1 && p2p_b.get_peers().len() == 1
+    })
+    .await;
+    assert!(ok, "cả hai node phải có đúng 1 peer sau race");
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(p2p_a.get_peers().len(), 1, "không được flap sau khi hội tụ");
+    assert_eq!(p2p_b.get_peers().len(), 1, "không được flap sau khi hội tụ");
+    // Key phải là dạng chuẩn hoá, không phải "localhost:..."
+    assert!(p2p_a.get_peers()[0].starts_with("127.0.0.1:"));
+}
+
+#[test]
+fn canonical_addr_normalizes_localhost_variants() {
+    assert_eq!(super::canonical_addr("localhost:3001"), "127.0.0.1:3001");
+    assert_eq!(super::canonical_addr("LOCALHOST:3001"), "127.0.0.1:3001");
+    assert_eq!(
+        super::canonical_addr("example.com:3001"),
+        "example.com:3001"
+    );
+    assert_eq!(super::canonical_addr("bad"), "bad");
+}
+
+#[tokio::test]
 async fn block_relay_between_nodes() {
     let (a, p2p_a, b, _p2p_b) = start_pair().await;
 
@@ -196,7 +243,12 @@ async fn discovered_peer_connect_failure_cleans_reservation() {
     // được dọn để discovery sau này còn thử lại được
     let a = temp_node("a");
     let p2p_a = P2P::new(a.clone());
-    super::connect_discovered(a.clone(), p2p_a.peers.clone(), "127.0.0.1:1".to_string(), None);
+    super::connect_discovered(
+        a.clone(),
+        p2p_a.peers.clone(),
+        "127.0.0.1:1".to_string(),
+        None,
+    );
     let ok = wait_for(Duration::from_secs(10), || async {
         p2p_a.peers.lock().unwrap().is_empty()
     })

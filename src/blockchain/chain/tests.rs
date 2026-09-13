@@ -168,7 +168,10 @@ fn difficulty_decrease_propagates_across_network() {
     for _ in 0..10 {
         bc.mine_block(&miner_addr);
     }
-    assert_eq!(bc.difficulty, 1, "retarget ở block #10 phải giảm difficulty");
+    assert_eq!(
+        bc.difficulty, 1,
+        "retarget ở block #10 phải giảm difficulty"
+    );
     bc.mine_block(&miner_addr); // block #11 mine ở difficulty 1
     assert_eq!(bc.get_latest_block().difficulty, 1);
     assert!(bc.is_chain_valid());
@@ -180,7 +183,11 @@ fn difficulty_decrease_propagates_across_network() {
     // Peer nhận từng block — block #11 yếu hơn tip #10 vẫn được chấp nhận
     let mut peer2 = BlockChain::new();
     for b in &bc.chain[1..] {
-        assert!(peer2.receive_block(b), "block #{} phải được chấp nhận", b.index);
+        assert!(
+            peer2.receive_block(b),
+            "block #{} phải được chấp nhận",
+            b.index
+        );
     }
 }
 
@@ -207,7 +214,7 @@ fn block_without_coinbase_rejected() {
     block.coinbase_tx = None;
     block.merkle_root = Some(block.calculate_merkle_root());
     block.difficulty = 1;
-    let target = "0".repeat(1);
+    let target = "0".to_string();
     loop {
         block.nonce += 1;
         block.hash = block.calculate_hash();
@@ -490,4 +497,3 @@ fn receive_block_rejects_unsigned_tx() {
         "block chứa tx chữ ký không hợp lệ phải bị từ chối"
     );
 }
-

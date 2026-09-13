@@ -38,6 +38,18 @@ pub struct PeerConn {
 
 static NEXT_CONN_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
+/// Chuẩn hoá "host:port" làm PeerMap key: biến thể localhost -> "127.0.0.1".
+/// Cùng một peer phải có đúng MỘT key — "localhost:3001" và "127.0.0.1:3001"
+/// là 2 key khác nhau phá duplicate detection, và PEERS sẽ quảng bá 2 addr
+/// của cùng một node -> node khác connect đôi rồi bị drop,announce tiếp lại
+/// connect lại -> vòng lặp kết nối vô hạn.
+pub fn canonical_addr(addr: &str) -> String {
+    match addr.rsplit_once(':') {
+        Some((host, port)) if util::is_localhost(host) => format!("127.0.0.1:{port}"),
+        _ => addr.to_string(),
+    }
+}
+
 pub fn next_conn_id() -> u64 {
     NEXT_CONN_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
@@ -146,7 +158,7 @@ impl P2P {
 
         // Key PeerMap chuẩn hoá host:port (không ws://) — khớp canonical key
         // sau khi peer handshake rekey, tránh duplicate connection
-        let address = format!("{host}:{port}");
+        let address = canonical_addr(&format!("{host}:{port}"));
         if self.is_connected(&address) {
             eprintln!("[P2P] ✗ Already connected to {address}");
             return;
@@ -244,6 +256,8 @@ pub fn connect_discovered(
     addr: String,
     listen_port: Option<u16>,
 ) {
+    // Chuẩn hoá key — addr có thể là "localhost:port" do peer connect bằng hostname
+    let addr = canonical_addr(&addr);
     // Reserve key ngay để PEERS thứ hai (race với connection chưa kịp insert)
     // không connect đôi tới cùng peer. Placeholder tx đóng sẵn — nếu connect
     // fail thì remove key.
