@@ -4,8 +4,9 @@
 use std::collections::HashSet;
 
 use crate::blockchain::block::Block;
-use crate::blockchain::transaction::{Transaction, TYPE_COINBASE};
+use crate::blockchain::transaction::{Transaction, TYPE_TRANSFER};
 use crate::config;
+use crate::crypto;
 use crate::util;
 use crate::wallet::BalanceTracker;
 
@@ -14,6 +15,13 @@ use crate::wallet::BalanceTracker;
 pub fn validate_tx_signature(tx: &Transaction) -> bool {
     if tx.signature.is_none() || tx.sender_public_key.is_none() {
         eprintln!("[TX_VALIDATOR] ✗ Transaction missing signature or public key");
+        return false;
+    }
+    // 'from' phải là địa chỉ suy ra từ CHÍNH public key đã ký — thiếu ràng
+    // buộc này thì ai cũng ký được tx ghi nợ địa chỉ người khác
+    let pk = tx.sender_public_key.as_deref().unwrap();
+    if crypto::address_from_public_hex(pk).as_deref() != Ok(tx.from.as_str()) {
+        eprintln!("[TX_VALIDATOR] ✗ 'from' does not match sender public key");
         return false;
     }
     tx.is_valid()
@@ -106,6 +114,12 @@ pub fn validate_transaction(
     mempool: &[Transaction],
     spent_txids: &HashSet<String>,
 ) -> bool {
+    // Mempool chỉ nhận TRANSFER — coinbase do miner tự tạo khi mine,
+    // tx_type khác (kể cả "COINBASE" tự khai) là bypass chữ ký + số dư
+    if tx.tx_type != TYPE_TRANSFER {
+        eprintln!("[TX_VALIDATOR] ✗ Only TRANSFER transactions allowed in mempool");
+        return false;
+    }
     if !validate_tx_amount(tx) {
         return false;
     }
@@ -117,13 +131,19 @@ pub fn validate_transaction(
         eprintln!("[TX_VALIDATOR] ✗ Transaction too large");
         return false;
     }
-    if tx.tx_type != TYPE_COINBASE && !validate_tx_signature(tx) {
+    // Mọi đường honest đều set txid qua sign() — tx không txid là tx bị
+    // sửa đổi, và nó làm prepare_block chọn lại mãi mỗi block
+    if tx.txid.is_none() {
+        eprintln!("[TX_VALIDATOR] ✗ Transaction missing txid");
+        return false;
+    }
+    if !validate_tx_signature(tx) {
         return false;
     }
     if !validate_tx_not_duplicate(tx, mempool, spent_txids) {
         return false;
     }
-    if tx.tx_type != TYPE_COINBASE && !validate_tx_balance(tx, balances, mempool) {
+    if !validate_tx_balance(tx, balances, mempool) {
         return false;
     }
     true
@@ -213,11 +233,47 @@ fn validate_proof_of_work(block: &Block, difficulty: usize) -> bool {
     true
 }
 
-/// Difficulty thực tế của một block đã mine = số leading-zeros của hash.
-/// Dùng khi validate block/chain từ mạng: node nhận không thể tin `self.difficulty`
-/// cục bộ (peer có thể đã adjust khác) — suy từ chính proof-of-work của block.
-pub fn pow_difficulty(block: &Block) -> usize {
-    block.hash.chars().take_while(|c| *c == '0').count()
+/// Difficulty khai báo trong header của block (miner mine theo đó).
+pub fn declared_difficulty(block: &Block) -> usize {
+    block.difficulty
+}
+
+/// Difficulty mà block tại `index` PHẢI khai báo, suy deterministic từ chain
+/// trước nó (`chain[..index]`). Đây là retarget rule — dùng chung bởi miner
+/// (adjust_difficulty) và validator để hai bên không thể lệch nhau:
+/// - block #1: `None` — chưa có mốc retarget, difficulty khởi điểm do miner chọn
+/// - ngoài boundary: bằng difficulty của block trước
+/// - tại boundary (block trước có index là bội của interval): ±1 theo thời gian
+///   mining của interval vừa qua, clamp [MIN, MAX]
+///
+/// ponytail: window đọc timestamp do miner tự ghi — chưa có median-time rule,
+/// thêm khi cần chống timejacking.
+pub fn expected_difficulty(chain: &[Block], index: usize) -> Option<usize> {
+    if index <= 1 {
+        return None;
+    }
+    let Some(prev) = chain.get(index - 1) else {
+        return None; // index ngoài chain — validate_block chặn qua expected_index
+    };
+    let interval = config::DIFFICULTY_ADJUSTMENT_INTERVAL;
+    let prev_index = index - 1;
+    if !prev_index.is_multiple_of(interval) {
+        return Some(prev.difficulty);
+    }
+    // Cửa sổ = interval block vừa qua: block (prev_index - interval) .. prev_index
+    let Some(anchor) = chain.get(prev_index - interval) else {
+        return Some(prev.difficulty);
+    };
+    let window = prev.timestamp.saturating_sub(anchor.timestamp);
+    let expected_time = (interval as u64) * config::TARGET_BLOCK_TIME;
+    let d = prev.difficulty;
+    Some(if window < expected_time / 2 {
+        (d + 1).min(config::MAX_DIFFICULTY)
+    } else if window > expected_time * 2 {
+        d.saturating_sub(1).max(config::MIN_DIFFICULTY)
+    } else {
+        d
+    })
 }
 
 fn validate_timestamp(block: &Block, previous_block: Option<&Block>) -> bool {
@@ -322,19 +378,19 @@ pub fn validate_block(block: &Block, opts: &BlockValidationOptions) -> bool {
     if !validate_timestamp(block, opts.previous_block.as_ref()) {
         return false;
     }
-    if block.coinbase_tx.is_some() {
-        let total_fees: u64 = block.transactions.iter().map(|tx| tx.fee).sum();
-        if !validate_coinbase(block, opts.expected_reward, total_fees) {
-            return false;
-        }
+    // Coinbase bắt buộc — block không coinbase không được chấp nhận
+    let total_fees: u64 = block.transactions.iter().map(|tx| tx.fee).sum();
+    if !validate_coinbase(block, opts.expected_reward, total_fees) {
+        return false;
     }
     true
 }
 
 /// Validate toàn bộ chain (bỏ qua genesis, giống JS).
-/// Difficulty kỳ vọng cho block i = leading-zeros của block i-1 (miner i-1
-/// đã adjust theo cùng thuật toán) — stateless, không tin difficulty cục bộ
-/// của node nhận. Block có PoW yếu hơn block trước vẫn bị từ chối.
+/// Difficulty mỗi block phải khớp retarget rule suy từ chain trước nó
+/// (expected_difficulty) — tăng hay giảm đều chỉ xảy ra tại boundary,
+/// mirror đúng những gì miner làm. Trust boundary: không tin difficulty
+/// khai báo tùy ý trong block nhận từ mạng.
 pub fn validate_chain(chain: &[Block], _local_difficulty: usize) -> bool {
     if chain.is_empty() {
         eprintln!("[BLOCK_VALIDATOR] ✗ Empty chain");
@@ -345,20 +401,21 @@ pub fn validate_chain(chain: &[Block], _local_difficulty: usize) -> bool {
     let mut rolling_balances = BalanceTracker::default();
     let mut rolling_spent: HashSet<String> = HashSet::new();
     for i in 1..chain.len() {
-        // ponytail: lấy min giữa difficulty của block trước và của chính block i
-        // — block i phải đạt ít nhất mức tip trước đó; cao hơn thì chấp nhận
-        // (peer đã adjust tăng là hợp lệ).
-        let expected = pow_difficulty(&chain[i - 1]);
-        let actual = pow_difficulty(&chain[i]);
-        if actual < expected {
+        let declared = declared_difficulty(&chain[i]);
+        let difficulty_ok = match expected_difficulty(chain, i) {
+            Some(expected) => declared == expected,
+            // Block #1: chưa có mốc retarget — chỉ chặn ngoài [MIN, MAX]
+            None => (config::MIN_DIFFICULTY..=config::MAX_DIFFICULTY).contains(&declared),
+        };
+        if !difficulty_ok {
             eprintln!(
-                "[BLOCK_VALIDATOR] ✗ Block #{} PoW difficulty dropped ({} < {})",
-                i, actual, expected
+                "[BLOCK_VALIDATOR] ✗ Block #{} difficulty {declared} không khớp retarget rule",
+                i
             );
             return false;
         }
         let opts = BlockValidationOptions {
-            difficulty: expected,
+            difficulty: declared,
             expected_index: Some(i),
             expected_previous_hash: Some(chain[i - 1].hash.clone()),
             previous_block: Some(chain[i - 1].clone()),

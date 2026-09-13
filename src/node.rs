@@ -58,14 +58,18 @@ impl Node {
             }
         }
 
-        // Load mempool từ storage nếu có — tx pending sống sót qua restart
+        // Load mempool từ storage nếu có — tx pending sống sót qua restart.
+        // Re-validate từng tx qua add_transaction: mempool file là dữ liệu cũ,
+        // rule validate có thể chặt hơn lúc nó được lưu
         if let Some(mempool) = storage.load_mempool() {
-            if !mempool.is_empty() {
+            for tx in &mempool {
+                let _ = blockchain.add_transaction(tx);
+            }
+            if !blockchain.mempool.is_empty() {
                 println!(
                     "Loaded {} pending transaction(s) from storage",
-                    mempool.len()
+                    blockchain.mempool.len()
                 );
-                blockchain.mempool = mempool;
             }
         }
 

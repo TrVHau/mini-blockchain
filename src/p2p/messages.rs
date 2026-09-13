@@ -22,6 +22,9 @@ pub mod message_type {
     // Handshake
     pub const HANDSHAKE: &str = "HANDSHAKE";
     pub const HANDSHAKE_ACK: &str = "HANDSHAKE_ACK";
+
+    // Peer discovery (mesh động)
+    pub const PEERS: &str = "PEERS";
 }
 
 fn wrap(msg_type: &str, data: Value) -> String {
@@ -78,6 +81,12 @@ pub fn handshake_ack(node_info: &NodeInfo, peer_addrs: &[String]) -> String {
         message_type::HANDSHAKE_ACK,
         json!({ "chainHeight": node_info.chain_height, "latestBlockHash": node_info.latest_block_hash, "mempoolSize": node_info.mempool_size, "timestamp": node_info.timestamp, "peers": peer_addrs }),
     )
+}
+
+/// Danh sách peer mình đang kết nối (mesh động: node nhận tự connect
+/// tới addr chưa biết; addr là canonical `host:listenPort`)
+pub fn peers(peer_addrs: &[String]) -> String {
+    wrap(message_type::PEERS, json!({ "peers": peer_addrs }))
 }
 
 /// Parse message -> (type, data). Data rỗng nếu message không có data.

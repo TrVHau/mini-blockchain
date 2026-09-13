@@ -25,6 +25,11 @@ pub struct Block {
     pub transactions: Vec<Transaction>,
     #[serde(default)]
     pub total_fees: u64,
+    /// Difficulty block này được mine (PoW target) — đưa vào header để
+    /// node nhận validate đúng difficulty của miner, không phải đoán từ
+    /// leading-zeros (hash đạt nhiều hơn target là chuyện xác suất).
+    #[serde(default)]
+    pub difficulty: usize,
     /// Merkle root của transactions
     #[serde(skip_serializing_if = "Option::is_none")]
     pub merkle_root: Option<String>,
@@ -48,6 +53,7 @@ impl Block {
             coinbase_tx: None,
             transactions: Vec::new(),
             total_fees: 0,
+            difficulty: 0,
             merkle_root: None,
             hash: String::new(),
         };
@@ -109,6 +115,7 @@ impl Block {
 
     /// Mine block với Proof of Work
     pub fn mine_block(&mut self, difficulty: usize, miner_address: &str) {
+        self.difficulty = difficulty;
         self.total_fees = self.transactions.iter().map(|tx| tx.fee).sum();
         self.coinbase_tx = Some(CoinbaseTransaction::new(
             miner_address,

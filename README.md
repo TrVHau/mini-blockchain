@@ -1,90 +1,138 @@
 # mini-blockchain
 
-A simple blockchain for learning purposes, viết bằng Rust.
+Một blockchain mini viết bằng Rust, để học cách blockchain hoạt động: đào block,
+ký giao dịch, đồng bộ giữa các node qua P2P.
 
-> Bản Rust hoàn chỉnh của project mini-blockchain JavaScript cũ (đã ngừng phát triển).
-> Số dư của ví là dữ liệu local — reset chain làm mất số dư (không phải tiền thật).
+> Port Rust hoàn chỉnh của project mini-blockchain JavaScript cũ (đã ngừng phát triển).
+> Số dư ví là dữ liệu local — reset chain là mất, không phải tiền thật.
 
-## Tính năng
-
-- Proof of Work (SHA-256, difficulty tự điều chỉnh mỗi 10 blocks)
-- Giao dịch ECDSA secp256k1 (ký/verify, double-spend protection qua `spent_txids`)
-- Merkle tree + Merkle proof
-- Block reward có halving (16 coins, giảm 50% mỗi 50 blocks)
-- P2P qua WebSocket: handshake, partial/full sync, relay block/transaction
-- REST API (axum, bind 127.0.0.1): query chain/block/tx/balance/mempool, tạo ví, gửi tx, Merkle proof
-- Lưu trữ JSON theo node (`data/nodes/<id>/`)
-- CLI REPL với đầy đủ lệnh (gõ `help`)
-
-## Chạy
+## Bắt đầu trong 2 phút
 
 ```bash
 cargo build --release
-
-# Node 1 (terminal 1)
 cargo run -- -n node1 -p 3000 -a
+```
 
-# Node 2 (terminal 2) — tự connect tới node 1
+Bạn đang chạy 1 node. Mở terminal thứ hai, thêm 1 node nữa vào mạng:
+
+```bash
 cargo run -- -n node2 -p 3001 -a -c localhost:3000
-
-# Node 3
-cargo run -- -n node3 -p 3002 -a -c localhost:3000
 ```
 
-## Lệnh CLI
+Node 2 tự kết nối tới node 1 và đồng bộ chain. Thêm node 3, 4... tương tự
+(`-c localhost:3000` là địa chỉ node bất kỳ đã chạy — mesh tự lo phần còn lại).
+
+## Làm quen qua CLI
+
+Gõ các lệnh sau trong REPL của node 1:
 
 ```
-Network:    open <port> | connect <host> <port> | peers | status | sync | close | disconnect [idx]
-Wallet:     wallet-create <name> | wallets [all] | balance <name> | address <name> | history <name>
-            export <name> | import <name> | wallet-delete <name>
-Mining:     mine <wallet> | automine <wallet> [interval] | stopautomine
-Transfers:  send <from> <to> <amount> [fee]
-Chain:      blockchain | block <idx|hash> | latest | validate | stats | tx <txid> | mempool | fee | reset
-Misc:       help | exit
+⛓ node1 ➜ wallet-create Alice      # tạo ví Alice
+⛓ node1 ➜ mine Alice               # đào 1 block, Alice nhận 16 coins
+⛓ node1 ➜ wallet-create Bob
+⛓ node1 ➜ send Alice Bob 5          # chuyển 5 coins (tx vào mempool, chờ confirm)
+⛓ node1 ➜ mine Alice               # đào block chứa tx trên
+⛓ node1 ➜ balance Bob              # -> 5
+⛓ node1 ➜ validate                 # -> chain hợp lệ
 ```
 
-Thử nhanh:
+Gõ `help` để xem tất cả lệnh:
 
-```
-wallet-create Alice     # tạo ví
-mine Alice              # đào block, nhận 16 coins
-wallet-create Bob
-send Alice Bob 5        # chuyển 5 coins
-mine Alice              # đưa tx vào block
-balance Bob             # 5 coins
-validate                # chain hợp lệ
-```
+| Nhóm      | Lệnh                                                                                    |
+| --------- | --------------------------------------------------------------------------------------- |
+| Network   | `open <port>` · `connect <host> <port>` · `peers` · `status` · `sync` · `disconnect [idx]` · `close` |
+| Wallet    | `wallet-create <name>` · `wallets [all]` · `balance <name>` · `address <name>` · `history <name>` · `export <name>` · `import <name>` · `wallet-delete <name>` |
+| Mining    | `mine <wallet>` · `automine <wallet> [interval]` · `stopautomine`                        |
+| Chuyển tiền | `send <from> <to> <amount> [fee]`                                                     |
+| Chain     | `blockchain` · `block <idx\|hash>` · `latest` · `validate` · `stats` · `tx <txid>` · `mempool` · `fee` · `proof <idx> <txid>` · `reset` |
 
-## Protocol P2P
+Lệnh nhận tên ví (`Alice`), địa chỉ đầy đủ (64 ký tự hex), hoặc tiền tố địa chỉ.
 
-WebSocket, JSON `{type, data}`:
-`HANDSHAKE`, `HANDSHAKE_ACK`, `REQUEST_CHAIN`, `RECEIVE_CHAIN`, `REQUEST_LATEST`,
-`REQUEST_BLOCKS_FROM`, `RECEIVE_BLOCKS`, `NEW_BLOCK`, `TRANSACTION`.
+## Tính năng
+
+- **Proof of Work** — SHA-256, difficulty ghi trong block header, tự điều chỉnh
+  mỗi 10 blocks theo thời gian đào thực tế (nhanh quá thì tăng, chậm quá thì giảm).
+- **Giao dịch có chữ ký** — ECDSA secp256k1. Tx chỉ hợp lệ khi `from` khớp địa chỉ
+  suy ra từ public key đã ký, có txid, đúng loại TRANSFER. Double-spend bị chặn
+  qua `spent_txids`.
+- **Merkle tree** — root trong block header, chứng minh tx thuộc block bằng
+  Merkle proof (`proof` trong CLI, `/blocks/<i>/proof/<txid>` trong API).
+- **Block reward có halving** — 16 coins/block, giảm 50% mỗi 50 blocks.
+- **P2P qua WebSocket** — handshake, sync từng phần hoặc cả chain, relay
+  block/transaction cho các peer khác.
+- **Peer discovery mesh động** — node mới join, cả mesh tự biết và tự connect
+  (tối đa 50 peer). Không cần cấu hình thủ công.
+- **REST API** (axum, chỉ bind 127.0.0.1) — xem chain, ví, mempool; tạo ví; gửi tx.
+- **Lưu trữ theo node** — `data/nodes/<id>/`, cả chain lẫn mempool sống sót qua
+  restart. Ghi atomic (không sợ file hỏng giữa chừng), wallet file chmod 600.
+- **CLI REPL** — mọi thao tác ở trên đều làm được từ terminal.
 
 ## REST API
 
-Khởi động với flag `-r/--rest <port>` (bind `127.0.0.1`):
+Khởi động với `-r <port>`:
 
 ```bash
 cargo run -- -n node1 -p 3000 -a -r 8080
 ```
 
-| Endpoint                                 | Mô tả                                                                               |
-| ---------------------------------------- | ----------------------------------------------------------------------------------- |
-| `GET /info`, `GET /stats`                | trạng thái node / thống kê chain                                                    |
-| `GET /chain`                             | toàn bộ chain                                                                       |
-| `GET /blocks/<index\|hash>`              | block theo index hoặc hash                                                           |
-| `GET /blocks/<index>/proof/<txid>`       | Merkle proof + verify                                                               |
-| `GET /tx/<txid>`                         | chi tiết transaction                                                                 |
-| `GET /mempool`, `GET /fee`               | tx đang chờ / ước tính fee                                                           |
-| `GET /balance/<name\|address\|prefix>`   | số dư (resolve như CLI)                                                              |
-| `GET /wallets`, `POST /wallets {"name"}` | danh sách ví / tạo ví (private key trả về 1 lần)                                     |
-| `POST /transactions`                     | `{"from": "alice", "to": "bob", "amount": "12.5", "fee": "0.1"}` — sign + broadcast |
+| Endpoint                                 | Mô tả                                          |
+| ---------------------------------------- | ---------------------------------------------- |
+| `GET /info`, `GET /stats`                | trạng thái node / thống kê chain               |
+| `GET /chain`                             | toàn bộ chain                                  |
+| `GET /blocks/<index\|hash>`              | block theo index hoặc hash                     |
+| `GET /blocks/<index>/proof/<txid>`       | Merkle proof + verify                          |
+| `GET /tx/<txid>`                         | chi tiết transaction                           |
+| `GET /mempool`, `GET /fee`               | tx đang chờ / ước tính fee                     |
+| `GET /balance/<name\|address\|prefix>`   | số dư (resolve tên như CLI)                    |
+| `GET /wallets`, `POST /wallets`          | danh sách ví / tạo ví `{"name": "alice"}`      |
+| `POST /transactions`                     | gửi tx (xem dưới)                              |
 
 ```bash
 curl -s localhost:8080/info
 curl -s -X POST localhost:8080/wallets -d '{"name":"alice"}'
-curl -s -X POST localhost:8080/transactions -d '{"from":"alice","to":"bob","amount":"5"}'
+curl -s -X POST localhost:8080/transactions \
+     -d '{"from":"alice","to":"bob","amount":"12.5","fee":"0.1"}'
+```
+
+Tạo ví qua API trả về private key đúng 1 lần — lưu lại nếu cần.
+`POST /transactions` yêu cầu `from` là ví local (cần private key để ký).
+
+## Protocol P2P
+
+WebSocket, JSON `{type, data}`. Các loại message:
+
+- **Kết nối / discovery**: `HANDSHAKE`, `HANDSHAKE_ACK`, `PEERS`
+- **Sync chain**: `REQUEST_CHAIN`, `RECEIVE_CHAIN`, `REQUEST_BLOCKS_FROM`, `RECEIVE_BLOCKS`, `REQUEST_LATEST`, `NEW_BLOCK`
+- **Giao dịch**: `TRANSACTION`
+
+`PEERS` là danh sách `host:listenPort` của các peer đang kết nối — node nhận tự
+connect tới addr chưa biết. Broadcast ngay khi mesh thay đổi (cập nhật tức thì)
+và định kỳ 60s (tự lành khi event bị miss).
+
+## Thiết kế đáng chú ý
+
+- **Tiền là số nguyên** — micro-coin (1 coin = 1.000.000 micro), không
+  floating-point. CLI/API nhập/xuất dạng thập phân (`send Alice Bob 12.5`).
+- **Keys hex** — private key 32 bytes, public key nén 33 bytes. Address =
+  sha256(public key), 64 ký tự hex. Ai có private key chi tiêu được ví — giữ kín.
+- **Difficulty là một hàm deterministic của chain** — miner và validator dùng
+  chung một rule (`expected_difficulty`): ngoài kỳ retarget giữ nguyên, tại
+  boundary ±1 theo thời gian đào. Hai bên không thể lệch nhau.
+- **Không tin gì từ mạng** — block nhận từ peer được validate toàn bộ: PoW,
+  linkage, Merkle root, coinbase, và **từng tx bên trong** (chữ ký, `from` khớp
+  public key, double-spend, số dư cộng dồn). Mempool load từ disk cũng được
+  re-validate.
+- **Concurrent đúng cách** — state dùng chung qua `Arc<Mutex<Node>>`; PoW chạy
+  ngoài lock (spawn_blocking) nên node vẫn phản hồi CLI/P2P trong lúc đào.
+- **Danh tính peer** = `host:listenPort` từ handshake; connection song song do
+  race 2 node connect nhau đồng thời bị phát hiện và bỏ bản dư.
+
+## Test
+
+```bash
+cargo test          # 58 test: unit + P2P integration (relay, sync, discovery, mesh)
+cargo clippy --all-targets -- -D warnings
+cargo fmt --check   # CI (GitHub Actions) chạy đủ 3 lệnh này
 ```
 
 ## Cấu trúc source
@@ -112,29 +160,9 @@ src/
 │   ├── messages.rs      # wire format
 │   └── tests.rs         # integration test 2 node thật
 ├── wallet.rs            # WalletManager + BalanceTracker
-├── storage.rs           # load/save JSON theo node
+├── storage.rs           # load/save JSON theo node (atomic write)
 ├── merkle.rs            # Merkle tree + proof
 ├── crypto.rs            # secp256k1 sign/verify, address derivation
 ├── util.rs              # UI helpers, validators, micro-coin parse/format
 └── config.rs            # constants (difficulty, reward, limits)
-```
-
-## Kiến trúc
-
-- **Đơn vị tiền**: u64 micro-coin (1 coin = 1_000_000 micro) — không lỗi floating-point.
-  CLI/API nhập/xuất dạng thập phân (`send Alice Bob 12.5`).
-- **Keys hex**: private key 32 bytes hex, public key compressed 33 bytes hex
-  (`import` nhận hex private key; giữ bí mật — ai có key chi tiêu được ví).
-- **Address** = sha256(public key) hex 64 ký tự.
-- **Shared state**: `Arc<tokio::sync::Mutex<Node>>` dùng chung bởi CLI, P2P tasks và
-  REST API. PoW chạy ngoài lock (spawn_blocking) để node vẫn phản hồi trong lúc mine.
-- **Double-spend**: mọi đường thêm block vào chain (mine / receive_block /
-  receive_chain) đều đánh dấu txid vào `spent_txids`.
-
-## Test
-
-```bash
-cargo test          # 42 test: unit (chain/validators/merkle/crypto/wallet/storage) + P2P integration
-cargo clippy --all-targets -- -D warnings
-cargo fmt --check   # CI chạy 3 lệnh này (GitHub Actions)
 ```

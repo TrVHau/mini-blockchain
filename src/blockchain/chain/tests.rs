@@ -159,6 +159,128 @@ fn pow_difficulty_drops_rejected_in_chain() {
 }
 
 #[test]
+fn difficulty_decrease_propagates_across_network() {
+    // Retarget đầu tiên đo từ genesis (ts cố định 2021) -> window "quá chậm"
+    // -> difficulty giảm 2->1 cho block #11. Mạng phải chấp nhận difficulty
+    // GIẢM tại boundary (trước đây mọi block yếu hơn tip đều bị từ chối).
+    let (_, _, miner_addr) = miner();
+    let mut bc = BlockChain::with_difficulty(2);
+    for _ in 0..10 {
+        bc.mine_block(&miner_addr);
+    }
+    assert_eq!(
+        bc.difficulty, 1,
+        "retarget ở block #10 phải giảm difficulty"
+    );
+    bc.mine_block(&miner_addr); // block #11 mine ở difficulty 1
+    assert_eq!(bc.get_latest_block().difficulty, 1);
+    assert!(bc.is_chain_valid());
+
+    // Peer sync cả chain
+    let mut peer = BlockChain::new();
+    assert!(peer.receive_chain(&bc.chain));
+
+    // Peer nhận từng block — block #11 yếu hơn tip #10 vẫn được chấp nhận
+    let mut peer2 = BlockChain::new();
+    for b in &bc.chain[1..] {
+        assert!(
+            peer2.receive_block(b),
+            "block #{} phải được chấp nhận",
+            b.index
+        );
+    }
+}
+
+#[test]
+fn difficulty_change_outside_retarget_rejected() {
+    // Đổi difficulty giữa interval (không phải boundary) -> chain từ chối
+    let (_, _, miner_addr) = miner();
+    let mut bc = BlockChain::with_difficulty(2);
+    bc.mine_block(&miner_addr); // block #1 (d2) — index 1 không phải boundary
+
+    let (mut block, _) = bc.prepare_block(&miner_addr);
+    block.mine_block(3, &miner_addr); // tự ý tăng lên 3
+    let mut chain = bc.chain.clone();
+    chain.push(block);
+    assert!(!BlockChain::new().receive_chain(&chain));
+}
+
+#[test]
+fn block_without_coinbase_rejected() {
+    // Block hợp lệ mọi thứ (PoW, linkage, merkle) nhưng không có coinbase
+    let (_, _, miner_addr) = miner();
+    let mut bc = BlockChain::with_difficulty(1);
+    let (mut block, _) = bc.prepare_block(&miner_addr);
+    block.coinbase_tx = None;
+    block.merkle_root = Some(block.calculate_merkle_root());
+    block.difficulty = 1;
+    let target = "0".to_string();
+    loop {
+        block.nonce += 1;
+        block.hash = block.calculate_hash();
+        if block.hash.starts_with(&target) {
+            break;
+        }
+    }
+    let mut victim = BlockChain::with_difficulty(1);
+    assert!(
+        !victim.receive_block(&block),
+        "block không coinbase phải bị từ chối"
+    );
+}
+
+#[test]
+fn tx_from_mismatched_public_key_rejected() {
+    // Kẻ tấn công ký tx "từ" địa chỉ nạn nhân bằng key của chính mình —
+    // chữ ký verify được (không khớp pk nào của nạn nhân cả) nhưng from
+    // không phải địa chỉ suy từ pk đã ký -> phải bị từ chối
+    let (_, _, victim) = miner();
+    let (evil_sk, evil_pk, evil_addr) = miner();
+    let mut bc = BlockChain::with_difficulty(2);
+    bc.mine_block(&victim);
+
+    let mut tx = Transaction::new(&victim, &evil_addr, 15_000_000, 0);
+    tx.sign(&evil_sk, &evil_pk).unwrap();
+    assert!(
+        bc.add_transaction(&tx).is_err(),
+        "tx ghi nợ địa chỉ người khác phải bị từ chối"
+    );
+
+    // Block chứa tx như vậy cũng bị từ chối ở receive path
+    let mut evil_block = bc.prepare_block(&evil_addr).0;
+    evil_block.transactions = vec![tx];
+    evil_block.mine_block(2, &evil_addr);
+    assert!(
+        !bc.receive_block(&evil_block),
+        "block chứa tx from-lệch-pk phải bị từ chối"
+    );
+}
+
+#[test]
+fn tx_without_txid_rejected() {
+    // Tx hợp lệ nhưng bị strip txid -> không được vào mempool (nếu vào được,
+    // prepare_block sẽ chọn nó lại mỗi block -> debit lặp + node khác từ chối)
+    let (sk, pk, addr) = miner();
+    let mut bc = BlockChain::with_difficulty(1);
+    bc.mine_block(&addr);
+    let mut tx = signed_tx(&sk, &pk, &addr, &"b".repeat(64), 1_000_000, 0);
+    tx.txid = None;
+    assert!(bc.add_transaction(&tx).is_err());
+}
+
+#[test]
+fn fake_coinbase_type_tx_rejected() {
+    // tx_type = "COINBASE" tự khai -> bypass chữ ký + số dư nếu được chấp nhận
+    let (_, _, victim) = miner();
+    let evil = "e".repeat(64);
+    let mut bc = BlockChain::with_difficulty(1);
+    bc.mine_block(&victim);
+    let mut tx = Transaction::new(&evil, &evil, 1_000_000_000, 0);
+    tx.tx_type = crate::blockchain::transaction::TYPE_COINBASE.to_string();
+    assert!(bc.add_transaction(&tx).is_err());
+}
+
+#[test]
 fn receive_block_validates_linkage() {
     let (_, _, miner_addr) = miner();
     let mut bc1 = BlockChain::with_difficulty(2);
